@@ -22,7 +22,7 @@ from pathlib import Path
 # Ensure we can import ada
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-import ada
+import aegis
 from authenticator import FaceAuthenticator
 from kasa_agent import KasaAgent
 
@@ -126,12 +126,12 @@ async def startup_event():
 
 @app.get("/status")
 async def status():
-    return {"status": "running", "service": "A.D.A Backend"}
+    return {"status": "running", "service": "A.E.G.I.S. Backend"}
 
 @sio.event
 async def connect(sid, environ):
     print(f"Client connected: {sid}")
-    await sio.emit('status', {'msg': 'Connected to A.D.A Backend'}, room=sid)
+    await sio.emit('status', {'msg': 'Connected to A.E.G.I.S. Backend'}, room=sid)
 
     global authenticator
     
@@ -203,7 +203,7 @@ async def start_audio(sid, data=None):
              loop_task = None
         else:
              print("Audio loop already running. Re-connecting client to session.")
-             await sio.emit('status', {'msg': 'A.D.A Already Running'})
+             await sio.emit('status', {'msg': 'A.E.G.I.S. Already Running'})
              return
 
 
@@ -268,10 +268,9 @@ async def start_audio(sid, data=None):
         print(f"Sending Error to frontend: {msg}")
         asyncio.create_task(sio.emit('error', {'msg': msg}))
 
-    # Initialize ADA
     try:
         print(f"Initializing AudioLoop with device_index={device_index}")
-        audio_loop = ada.AudioLoop(
+        audio_loop = aegis.AudioLoop(
             video_mode="none", 
             on_audio_data=on_audio_data,
             on_cad_data=on_cad_data,
@@ -313,8 +312,8 @@ async def start_audio(sid, data=None):
         
         loop_task.add_done_callback(handle_loop_exit)
         
-        print("Emitting 'A.D.A Started'")
-        await sio.emit('status', {'msg': 'A.D.A Started'})
+        print("Emitting 'A.E.G.I.S. Started'")
+        await sio.emit('status', {'msg': 'A.E.G.I.S. Started'})
 
         # Load saved printers
         saved_printers = SETTINGS.get("printers", [])
@@ -379,7 +378,7 @@ async def stop_audio(sid):
         audio_loop.stop() 
         print("Stopping Audio Loop")
         audio_loop = None
-        await sio.emit('status', {'msg': 'A.D.A Stopped'})
+        await sio.emit('status', {'msg': 'A.E.G.I.S. Stopped'})
 
 @sio.event
 async def pause_audio(sid):
@@ -717,7 +716,7 @@ async def discover_printers(sid):
             return
         else:
             await sio.emit('printer_list', [])
-            await sio.emit('status', {'msg': "Connect to A.D.A to enable printer discovery"})
+            await sio.emit('status', {'msg': "Connect to A.E.G.I.S. to enable printer discovery"})
             return
         
     try:

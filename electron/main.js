@@ -9,7 +9,7 @@ app.commandLine.appendSwitch('enable-features', 'Vulkan');
 app.commandLine.appendSwitch('ignore-gpu-blocklist');
 
 let mainWindow;
-let pythonProcess;
+// pythonProcess variable removed as backend is now a daemon
 
 function createWindow() {
     mainWindow = new BrowserWindow({
@@ -63,23 +63,8 @@ function createWindow() {
     });
 }
 
-function startPythonBackend() {
-    const scriptPath = path.join(__dirname, '../backend/server.py');
-    console.log(`Starting Python backend: ${scriptPath}`);
-
-    // Assuming 'python' is in PATH. In prod, this would be the executable.
-    pythonProcess = spawn('python', [scriptPath], {
-        cwd: path.join(__dirname, '../backend'),
-    });
-
-    pythonProcess.stdout.on('data', (data) => {
-        console.log(`[Python]: ${data}`);
-    });
-
-    pythonProcess.stderr.on('data', (data) => {
-        console.error(`[Python Error]: ${data}`);
-    });
-}
+// startPythonBackend function removed.
+// Backend is now managed as a daemon with PM2 (AEGIS-CORE).
 
 app.whenReady().then(() => {
     ipcMain.on('window-minimize', () => {
@@ -100,18 +85,8 @@ app.whenReady().then(() => {
         if (mainWindow) mainWindow.close();
     });
 
-    checkBackendPort(8000).then((isTaken) => {
-        if (isTaken) {
-            console.log('Port 8000 is taken. Assuming backend is already running manually.');
-            waitForBackend().then(createWindow);
-        } else {
-            startPythonBackend();
-            // Give it a moment to start, then wait for health check
-            setTimeout(() => {
-                waitForBackend().then(createWindow);
-            }, 1000);
-        }
-    });
+    console.log('Waiting for AEGIS-CORE daemon on port 8000...');
+    waitForBackend().then(createWindow);
 
     app.on('activate', () => {
         if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -171,20 +146,5 @@ app.on('window-all-closed', () => {
 });
 
 app.on('will-quit', () => {
-    console.log('App closing... Killing Python backend.');
-    if (pythonProcess) {
-        if (process.platform === 'win32') {
-            // Windows: Force kill the process tree synchronously
-            try {
-                const { execSync } = require('child_process');
-                execSync(`taskkill /pid ${pythonProcess.pid} /f /t`);
-            } catch (e) {
-                console.error('Failed to kill python process:', e.message);
-            }
-        } else {
-            // Unix: SIGKILL
-            pythonProcess.kill('SIGKILL');
-        }
-        pythonProcess = null;
-    }
+    console.log('App closing... AEGIS-CORE daemon remains active.');
 });

@@ -329,9 +329,9 @@ function App() {
         socket.on('status', (data) => {
             addMessage('System', data.msg);
             // Update status bar based on backend messages
-            if (data.msg === 'A.D.A Started') {
+            if (data.msg === 'A.E.G.I.S. Started') {
                 setStatus('Model Connected');
-            } else if (data.msg === 'A.D.A Stopped') {
+            } else if (data.msg === 'A.E.G.I.S. Stopped') {
                 setStatus('Connected');
             }
         });
@@ -840,7 +840,7 @@ function App() {
                 let normY = (indexTip.y - 0.5) * SENSITIVITY + 0.5;
                 normY = Math.max(0, Math.min(1, normY));
 
-                const targetX = normX * window.innerWidth;
+                const targetX = (1 - normX) * window.innerWidth;
                 const targetY = normY * window.innerHeight;
 
                 // 1. Smoothing (Lerp)
@@ -963,7 +963,7 @@ function App() {
                 const wristRawX = isCameraFlippedRef.current ? (1 - wrist.x) : wrist.x;
                 const wristNormX = Math.max(0, Math.min(1, (wristRawX - 0.5) * SENSITIVITY + 0.5));
                 const wristNormY = Math.max(0, Math.min(1, (wrist.y - 0.5) * SENSITIVITY + 0.5));
-                const wristScreenX = wristNormX * window.innerWidth;
+                const wristScreenX = (1 - wristNormX) * window.innerWidth;
                 const wristScreenY = wristNormY * window.innerHeight;
 
                 if (isFist) {
@@ -1397,7 +1397,7 @@ function App() {
             <div className="z-50 flex items-center justify-between p-2 border-b border-cyan-500/20 bg-black/40 backdrop-blur-md select-none sticky top-0" style={{ WebkitAppRegion: 'drag' }}>
                 <div className="flex items-center gap-4 pl-2">
                     <h1 className="text-xl font-bold tracking-[0.2em] text-cyan-400 drop-shadow-[0_0_10px_rgba(34,211,238,0.5)]">
-                        A.D.A
+                        A.E.G.I.S.
                     </h1>
                     <div className="text-[10px] text-cyan-700 border border-cyan-900 px-1 rounded">
                         V2.0.0
@@ -1503,8 +1503,8 @@ function App() {
                         {/* Canvas for Displaying Video + Skeleton (Ensures overlap) */}
                         <canvas
                             ref={canvasRef}
-                            className="absolute inset-0 w-full h-full opacity-80"
-                            style={{ transform: isCameraFlipped ? 'scaleX(-1)' : 'none' }}
+                            className="absolute inset-0 w-full h-full opacity-80 mirrored-video"
+                            style={{ transform: 'scaleX(-1)' }}
                         />
                     </div>
                 </div>
