@@ -422,7 +422,7 @@ pytest tests/ -v
 | **3D. AppServices** | ✅ Done | Replaced globals in server.py with `AppServices` container |
 | **3E. tool_registry** | ✅ Done | Consolidated in `tool_registry.py`; `tools.py` re-exports for compatibility |
 | **4. Code quality** | ✅ Done | Logger in backend; server prints → logger; Error Boundary in React; import dedupe |
-| **5. Infrastructure** | Pending | Ruff/ESLint, pin deps, GitHub Actions, Electron security, Docker |
+| **5. Infrastructure** | ✅ Done | Ruff (pyproject.toml), ESLint, pinned deps, GitHub Actions CI, Electron preload + contextIsolation, Dockerfile |
 
 ---
 

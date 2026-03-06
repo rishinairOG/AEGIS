@@ -31,7 +31,7 @@ import SettingsWindow from './components/SettingsWindow';
 
 
 
-const { ipcRenderer } = window.require('electron');
+const aegisBridge = window.aegisBridge || { send: () => {} };
 
 function App() {
     const { socket, status, setStatus, socketConnected } = useSocket('http://localhost:8000');
@@ -599,14 +599,14 @@ function App() {
         }
     };
 
-    const handleMinimize = () => ipcRenderer.send('window-minimize');
-    const handleMaximize = () => ipcRenderer.send('window-maximize');
+    const handleMinimize = () => aegisBridge.send('window-minimize');
+    const handleMaximize = () => aegisBridge.send('window-maximize');
 
     // Close Application - memory is now actively saved to project, no prompt needed
     const handleCloseRequest = () => {
         // Emit shutdown signal to backend for graceful shutdown
         // Use volatile emit with timeout fallback to ensure window closes even if server is unresponsive
-        const closeWindow = () => ipcRenderer.send('window-close');
+        const closeWindow = () => aegisBridge.send('window-close');
 
         if (socket.connected) {
             console.log('[APP] Sending shutdown signal to backend...');

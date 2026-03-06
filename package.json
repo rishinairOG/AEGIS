@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "concurrently -k \"vite\" \"wait-on tcp:5173 && npx electron .\"",
     "build": "vite build",
-    "start": "npx electron ."
+    "start": "npx electron .",
+    "lint:js": "eslint src --ext .js,.jsx --max-warnings 0"
   },
   "keywords": [],
   "author": "",
@@ -28,6 +29,9 @@
     "three": "^0.160.0"
   },
   "devDependencies": {
+    "eslint": "^8.57.0",
+    "eslint-plugin-react": "^7.34.0",
+    "eslint-plugin-react-hooks": "^4.6.0",
     "@vitejs/plugin-react": "^4.2.1",
     "autoprefixer": "^10.4.17",
     "concurrently": "^8.2.2",

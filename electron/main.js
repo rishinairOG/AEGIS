@@ -1,23 +1,21 @@
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, shell } = require('electron');
 const path = require('path');
-const { spawn } = require('child_process');
 
-// Use ANGLE D3D11 backend - more stable on Windows while keeping WebGL working
-// This fixes "GPU state invalid after WaitForGetOffsetInRange" error
 app.commandLine.appendSwitch('use-angle', 'd3d11');
 app.commandLine.appendSwitch('enable-features', 'Vulkan');
 app.commandLine.appendSwitch('ignore-gpu-blocklist');
 
 let mainWindow;
-// pythonProcess variable removed as backend is now a daemon
 
 function createWindow() {
+    const preloadPath = path.join(__dirname, 'preload.js');
     mainWindow = new BrowserWindow({
         width: 1920,
         height: 1080,
         webPreferences: {
-            nodeIntegration: true,
-            contextIsolation: false, // For simple IPC/Socket.IO usage
+            nodeIntegration: false,
+            contextIsolation: true,
+            preload: preloadPath,
         },
         backgroundColor: '#000000',
         frame: false, // Frameless for custom UI
@@ -83,6 +81,12 @@ app.whenReady().then(() => {
 
     ipcMain.on('window-close', () => {
         if (mainWindow) mainWindow.close();
+    });
+
+    ipcMain.on('open-external', (_, url) => {
+        if (typeof url === 'string' && (url.startsWith('http://') || url.startsWith('https://'))) {
+            shell.openExternal(url);
+        }
     });
 
     console.log('Waiting for AEGIS-CORE daemon on port 8000...');
