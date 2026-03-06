@@ -1,4 +1,5 @@
 import os
+import sys
 import asyncio
 import logging
 from dotenv import load_dotenv
@@ -6,6 +7,9 @@ from telegram import Update
 from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filters, CommandHandler
 from google import genai
 from google.genai import types
+
+# Ensure backend directory is on path for memory import
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 # Load environment variables
 load_dotenv()
@@ -50,6 +54,9 @@ chat = client.chats.create(
     )
 )
 
+# HippoMem long-term memory (lazy-started on first message)
+memory = None
+
 # --- TELEGRAM HANDLERS ---
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -62,6 +69,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Greetings, Sir. A.E.G.I.S. Telegram Bridge is active and standing by.")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global memory
     user_id = update.effective_user.id
     if user_id != AUTHORIZED_USER_ID:
         return # Drop messages from others
@@ -75,13 +83,41 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         # Show typing status
         await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
-        
+
+        # Lazy-start HippoMem long-term memory
+        if memory is None:
+            try:
+                from memory import AegisMemory
+                memory = AegisMemory()
+                await memory.start()
+                logger.info("HippoMem memory started for Telegram bridge.")
+            except Exception as e:
+                logger.warning("Memory startup failed (continuing without): %s", e)
+                memory = None
+
+        # Decode: retrieve relevant memory context before LLM call
+        prompt = text
+        if memory and memory.service:
+            try:
+                mem_context = await memory.recall(text)
+                if mem_context:
+                    prompt = f"{mem_context}\n\nUser: {text}"
+            except Exception as e:
+                logger.warning("Memory recall failed: %s", e)
+
         # Process via Gemini Brain
-        response = await asyncio.to_thread(chat.send_message, text)
-        
+        response = await asyncio.to_thread(chat.send_message, prompt)
+
+        # Encode: store turn in long-term memory after response
+        if memory and memory.service:
+            try:
+                await memory.remember(text, response.text)
+            except Exception as e:
+                logger.warning("Memory remember failed: %s", e)
+
         # Reply to Sir
         await update.message.reply_text(response.text)
-        
+
     except Exception as e:
         logger.error(f"Error processing message: {e}")
         await update.message.reply_text(f"Apologies, Sir. I encountered an error: {str(e)}")

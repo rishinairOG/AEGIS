@@ -4,6 +4,7 @@ from mediapipe.tasks.python import vision
 import cv2
 import asyncio
 import os
+import sys
 import base64
 import numpy as np
 import urllib.request
@@ -160,7 +161,9 @@ class FaceAuthenticator:
     def _run_cv_loop(self, loop):
         def try_open_camera(index):
             print(f"[AUTH] Trying to open camera with index {index}...")
-            cap = cv2.VideoCapture(index, cv2.CAP_AVFOUNDATION)
+            # Platform-specific camera backend: DSHOW on Windows, AVFOUNDATION on macOS
+            backend = cv2.CAP_DSHOW if sys.platform == "win32" else cv2.CAP_AVFOUNDATION
+            cap = cv2.VideoCapture(index, backend)
             if not cap.isOpened():
                 print(f"[AUTH] [ERR] Could not open video device {index}.")
                 return None

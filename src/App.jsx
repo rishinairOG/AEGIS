@@ -1,10 +1,23 @@
 import React, { useEffect, useState, useRef } from 'react';
-import io from 'socket.io-client';
+
+import {
+    useSocket,
+    useChat,
+    useAuth,
+    useCadState,
+    useBrowserState,
+    useKasaState,
+    usePrinterState,
+    useMediaDevices,
+    useModularLayout,
+    useHandTracking
+} from './hooks';
 
 import Visualizer from './components/Visualizer';
 import TopAudioBar from './components/TopAudioBar';
 import CadWindow from './components/CadWindow';
 import BrowserWindow from './components/BrowserWindow';
+import DraggableWindow from './components/DraggableWindow';
 import ChatModule from './components/ChatModule';
 import ToolsModule from './components/ToolsModule';
 import { Mic, MicOff, Settings, X, Minus, Power, Video, VideoOff, Layout, Hand, Printer, Clock } from 'lucide-react';
@@ -18,159 +31,58 @@ import SettingsWindow from './components/SettingsWindow';
 
 
 
-const socket = io('http://localhost:8000');
 const { ipcRenderer } = window.require('electron');
 
 function App() {
-    const [status, setStatus] = useState('Disconnected');
-    const [socketConnected, setSocketConnected] = useState(socket.connected); // Track socket connection reactively
-    // Auth State
-    const [isAuthenticated, setIsAuthenticated] = useState(() => {
-        // Optimistically assume authenticated if face auth is NOT enabled
-        return localStorage.getItem('face_auth_enabled') !== 'true';
-    });
+    const { socket, status, setStatus, socketConnected } = useSocket('http://localhost:8000');
+    const layout = useModularLayout();
+    const { elementPositions, setElementPositions, elementSizes, zIndexOrder, activeDragElement, setActiveDragElement,
+        elementPositionsRef, activeDragElementRef, lastActiveDragElementRef, isModularMode, setIsModularMode,
+        clampToViewport, getZIndex, bringToFront, updateElementPosition, handleMouseDown } = layout;
+    const hand = useHandTracking();
+    const { cursorPos, setCursorPos, isPinching, setIsPinching, isHandTrackingEnabled, setIsHandTrackingEnabled,
+        cursorSensitivity, setCursorSensitivity, isCameraFlipped, setIsCameraFlipped,
+        handLandmarkerRef, lastCursorPosRef, lastWristPosRef, smoothedCursorPosRef, snapStateRef,
+        isHandTrackingEnabledRef, cursorSensitivityRef, isCameraFlippedRef } = hand;
+    const auth = useAuth(socket, { setCameraFlipped: hand.setIsCameraFlipped });
+    const { isAuthenticated, isLockScreenVisible, faceAuthEnabled, setFaceAuthEnabled } = auth;
+    const chat = useChat(socket, setStatus);
+    const { messages, inputValue, setInputValue, addMessage, handleSend } = chat;
+    const cad = useCadState(socket, setElementPositions, clampToViewport);
+    const { cadData, setCadData, cadThoughts, cadRetryInfo, showCadWindow, setShowCadWindow } = cad;
+    const browser = useBrowserState(socket, setElementPositions, clampToViewport);
+    const { browserData, showBrowserWindow, setShowBrowserWindow } = browser;
+    const kasa = useKasaState(socket);
+    const { kasaDevices, showKasaWindow, setShowKasaWindow } = kasa;
+    const printer = usePrinterState(socket, setElementPositions, clampToViewport);
+    const { slicingStatus, activePrintStatus, printerCount, showPrinterWindow, setShowPrinterWindow } = printer;
+    const media = useMediaDevices();
+    const { micDevices, speakerDevices, webcamDevices, selectedMicId, setSelectedMicId, selectedSpeakerId, setSelectedSpeakerId, selectedWebcamId, setSelectedWebcamId } = media;
 
-    // Initialize from LocalStorage to prevent flash of UI
-    const [isLockScreenVisible, setIsLockScreenVisible] = useState(() => {
-        const saved = localStorage.getItem('face_auth_enabled');
-        // If saved is 'true', we MUST start locked.
-        // If 'false' or null (default off), we start unlocked.
-        return saved === 'true';
-    });
-
-    // Local state for tracking settings, also init from local storage
-    const [faceAuthEnabled, setFaceAuthEnabled] = useState(() => {
-        return localStorage.getItem('face_auth_enabled') === 'true';
-    });
-
-
-    const [isConnected, setIsConnected] = useState(true); // Power state DEFAULT ON
-    const [isMuted, setIsMuted] = useState(true); // Mic state DEFAULT MUTED
-    const [isVideoOn, setIsVideoOn] = useState(false); // Video state
-    const [messages, setMessages] = useState([]);
-    const [inputValue, setInputValue] = useState('');
-    const [cadData, setCadData] = useState(null);
-    const [cadThoughts, setCadThoughts] = useState(''); // Streaming AI thoughts
-    const [cadRetryInfo, setCadRetryInfo] = useState({ attempt: 1, maxAttempts: 3, error: null }); // Retry status
-    const [browserData, setBrowserData] = useState({ image: null, logs: [] });
-    // showMemoryPrompt removed - memory is now actively saved to project
-    const [confirmationRequest, setConfirmationRequest] = useState(null); // { id, tool, args }
-    const [kasaDevices, setKasaDevices] = useState([]);
-    const [showKasaWindow, setShowKasaWindow] = useState(false);
-    const [showPrinterWindow, setShowPrinterWindow] = useState(false);
-    const [showCadWindow, setShowCadWindow] = useState(false);
-    const [showBrowserWindow, setShowBrowserWindow] = useState(false);
-
-    // Printing workflow status (for top toolbar display)
-    const [slicingStatus, setSlicingStatus] = useState({ active: false, percent: 0, message: '' });
-    const [activePrintStatus, setActivePrintStatus] = useState(null); // {printer, progress_percent, time_elapsed, state}
-    const [printerCount, setPrinterCount] = useState(0); // Count of connected printers
-    const [currentTime, setCurrentTime] = useState(new Date()); // Live clock
-
-
-    // RESTORED STATE
+    const [isConnected, setIsConnected] = useState(true);
+    const [isMuted, setIsMuted] = useState(true);
+    const [isVideoOn, setIsVideoOn] = useState(false);
+    const [confirmationRequest, setConfirmationRequest] = useState(null);
+    const [currentTime, setCurrentTime] = useState(new Date());
     const [aiAudioData, setAiAudioData] = useState(new Array(64).fill(0));
     const [micAudioData, setMicAudioData] = useState(new Array(32).fill(0));
     const [fps, setFps] = useState(0);
-
-    // Device states - microphones, speakers, webcams
-    const [micDevices, setMicDevices] = useState([]);
-    const [speakerDevices, setSpeakerDevices] = useState([]);
-    const [webcamDevices, setWebcamDevices] = useState([]);
-
-    // Selected device IDs - restored from localStorage
-    const [selectedMicId, setSelectedMicId] = useState(() => localStorage.getItem('selectedMicId') || '');
-    const [selectedSpeakerId, setSelectedSpeakerId] = useState(() => localStorage.getItem('selectedSpeakerId') || '');
-    const [selectedWebcamId, setSelectedWebcamId] = useState(() => localStorage.getItem('selectedWebcamId') || '');
     const [showSettings, setShowSettings] = useState(false);
     const [currentProject, setCurrentProject] = useState('default');
+    const [ripples, setRipples] = useState([]);
 
-    // Modular Mode State
-    const [isModularMode, setIsModularMode] = useState(false);
-    const [elementPositions, setElementPositions] = useState({
-        video: { x: 40, y: 80 }, // Initial positions (approximate)
-        visualizer: { x: window.innerWidth / 2, y: window.innerHeight / 2 - 150 },
-        chat: { x: window.innerWidth / 2, y: window.innerHeight / 2 + 100 },
-        cad: { x: window.innerWidth / 2 + 300, y: window.innerHeight / 2 },
-        browser: { x: window.innerWidth / 2 - 300, y: window.innerHeight / 2 },
-        kasa: { x: window.innerWidth / 2 + 350, y: window.innerHeight / 2 - 100 },
-        printer: { x: window.innerWidth / 2 - 350, y: window.innerHeight / 2 - 100 },
-        tools: { x: window.innerWidth / 2, y: window.innerHeight - 100 } // Fixed bottom OFFSET
-    });
-
-    const [elementSizes, setElementSizes] = useState({
-        visualizer: { w: 550, h: 350 },
-        chat: { w: 550, h: 220 },
-        tools: { w: 500, h: 80 }, // Approx
-        cad: { w: 400, h: 400 },
-        browser: { w: 550, h: 380 },
-        video: { w: 320, h: 180 },
-        kasa: { w: 300, h: 380 }, // Approx
-        printer: { w: 380, h: 380 } // Approx
-    });
-    const [activeDragElement, setActiveDragElement] = useState(null);
-
-    // Z-Index Stacking Order (last element = highest z-index)
-    const [zIndexOrder, setZIndexOrder] = useState([
-        'visualizer', 'chat', 'tools', 'video', 'cad', 'browser', 'kasa', 'printer'
-    ]);
-
-    // Hand Control State
-    const [cursorPos, setCursorPos] = useState({ x: 0, y: 0 });
-    const [isPinching, setIsPinching] = useState(false);
-    const [isHandTrackingEnabled, setIsHandTrackingEnabled] = useState(false); // DEFAULT OFF
-    const [cursorSensitivity, setCursorSensitivity] = useState(2.0);
-    const [isCameraFlipped, setIsCameraFlipped] = useState(false); // Gesture control camera flip
-
-    // Refs for Loop Access (Avoiding Closure Staleness)
-    const isHandTrackingEnabledRef = useRef(false); // DEFAULT OFF
-    const cursorSensitivityRef = useRef(2.0);
-    const isCameraFlippedRef = useRef(false);
-    const handLandmarkerRef = useRef(null);
-    const cursorTrailRef = useRef([]); // Stores last N positions for trail
-    const [ripples, setRipples] = useState([]); // Visual ripples on click
-
-    // Web Audio Context for Mic Visualization
     const audioContextRef = useRef(null);
     const analyserRef = useRef(null);
     const sourceRef = useRef(null);
     const animationFrameRef = useRef(null);
-
-    // Video Refs
     const videoRef = useRef(null);
     const canvasRef = useRef(null);
-    const transmissionCanvasRef = useRef(null); // Dedicated canvas for resizing payload
+    const transmissionCanvasRef = useRef(null);
     const videoIntervalRef = useRef(null);
     const lastFrameTimeRef = useRef(0);
     const frameCountRef = useRef(0);
     const lastVideoTimeRef = useRef(-1);
-
-    // Ref to track video state for the loop (avoids closure staleness)
     const isVideoOnRef = useRef(false);
-    const isModularModeRef = useRef(false);
-    const elementPositionsRef = useRef(elementPositions);
-    const activeDragElementRef = useRef(null);
-    const lastActiveDragElementRef = useRef(null);
-    const lastCursorPosRef = useRef({ x: 0, y: 0 });
-    const lastWristPosRef = useRef({ x: 0, y: 0 }); // For stable fist gesture tracking
-
-    // Smoothing and Snapping Refs
-    const smoothedCursorPosRef = useRef({ x: 0, y: 0 });
-    const snapStateRef = useRef({ isSnapped: false, element: null, snapPos: { x: 0, y: 0 } });
-
-    // Mouse Drag Refs
-    const dragOffsetRef = useRef({ x: 0, y: 0 });
-    const isDraggingRef = useRef(false);
-
-    // Update refs when state changes
-    useEffect(() => {
-        isModularModeRef.current = isModularMode;
-        elementPositionsRef.current = elementPositions;
-        isHandTrackingEnabledRef.current = isHandTrackingEnabled;
-        cursorSensitivityRef.current = cursorSensitivity;
-        isCameraFlippedRef.current = isCameraFlipped;
-        console.log("[Ref Sync] Camera flipped ref updated to:", isCameraFlipped);
-    }, [isModularMode, elementPositions, isHandTrackingEnabled, cursorSensitivity, isCameraFlipped]);
 
     // Live Clock Update
     useEffect(() => {
@@ -179,111 +91,6 @@ function App() {
         }, 1000);
         return () => clearInterval(timer);
     }, []);
-
-    // Centering Logic (Startup & Resize)
-    useEffect(() => {
-        const centerElements = () => {
-            const width = window.innerWidth;
-            const height = window.innerHeight;
-
-            // Calculate available vertical space
-            // Tools is fixed at bottom ~100px space
-            const toolsY = height - 100;
-            // ToolsModule uses translate(-50%, -50%). So its Center Y.
-            // Let's reserve bottom 140px for tools to be safe and float it nicely.
-            const toolsCenterY = height - 100;
-
-            const gap = 20;
-
-            // Chat: Anchor is Top-Center (translate(-50%, 0)).
-            // We want Chat Bottom to be above Tools Top.
-            // Tools Top = toolsCenterY - (ToolsHeight/2) approx 40 = height - 140;
-            const chatBottomLimit = height - 140;
-
-            // Dynamic Height Calculation to fit screen
-            // Standard Heights
-            let vizH = 400;
-            let chatH = 250;
-            const topBarHeight = 60;
-
-            // Total needed: TopBar + Viz + Gap + Chat + Gap + Tools (140 reserved)
-            const totalNeeded = topBarHeight + vizH + gap + chatH + gap + 140;
-
-            if (height < totalNeeded) {
-                // Scale down
-                const available = height - topBarHeight - 140 - (gap * 2);
-                // Allocate 60% to Viz, 40% to Chat
-                vizH = available * 0.6;
-                chatH = available * 0.4;
-            }
-
-            // Positions
-            // Visualizer (Center Anchored)
-            // Top of Viz = TopBarHeight. Center = TopBarHeight + VizH/2
-            const vizY = topBarHeight + (vizH / 2); // Removed buffer
-
-            // Chat (Top Anchored)
-            // Top of Chat = TopBarHeight + VizH + Gap
-            const chatY = topBarHeight + vizH + gap;
-
-            setElementSizes(prev => ({
-                ...prev,
-                visualizer: { w: Math.min(600, width * 0.8), h: vizH },
-                chat: { w: Math.min(600, width * 0.9), h: chatH }
-            }));
-
-            setElementPositions(prev => ({
-                ...prev,
-                visualizer: {
-                    x: width / 2,
-                    y: vizY
-                },
-                chat: {
-                    x: width / 2,
-                    y: chatY
-                },
-                tools: {
-                    x: width / 2,
-                    y: toolsCenterY
-                }
-            }));
-        };
-
-        // Center on mount
-        centerElements();
-
-        // Center on resize
-        window.addEventListener('resize', centerElements);
-        return () => window.removeEventListener('resize', centerElements);
-    }, []);
-
-    // Utility: Clamp position to viewport so component stays fully visible
-    const clampToViewport = (pos, size) => {
-        const margin = 10;
-        const topBarHeight = 60;
-        const width = window.innerWidth;
-        const height = window.innerHeight;
-
-        return {
-            x: Math.max(size.w / 2 + margin, Math.min(width - size.w / 2 - margin, pos.x)),
-            y: Math.max(size.h / 2 + margin + topBarHeight, Math.min(height - size.h / 2 - margin, pos.y))
-        };
-    };
-
-    // Utility: Get z-index for an element based on stacking order
-    const getZIndex = (id) => {
-        const baseZ = 30; // Above background elements
-        const index = zIndexOrder.indexOf(id);
-        return baseZ + (index >= 0 ? index : 0);
-    };
-
-    // Utility: Bring element to front (highest z-index)
-    const bringToFront = (id) => {
-        setZIndexOrder(prev => {
-            const filtered = prev.filter(el => el !== id);
-            return [...filtered, id]; // Move to end = highest z-index
-        });
-    };
 
     // Ref to track if model has been auto-connected (prevents duplicate connections)
     const hasAutoConnectedRef = useRef(false);
@@ -316,300 +123,36 @@ function App() {
     }, [isConnected, isAuthenticated, socketConnected, micDevices, selectedMicId]);
 
     useEffect(() => {
-        // Socket IO Setup
-        socket.on('connect', () => {
-            setStatus('Connected');
-            setSocketConnected(true);
-            socket.emit('get_settings');
-        });
-        socket.on('disconnect', () => {
-            setStatus('Disconnected');
-            setSocketConnected(false);
-        });
-        socket.on('status', (data) => {
-            addMessage('System', data.msg);
-            // Update status bar based on backend messages
-            if (data.msg === 'A.E.G.I.S. Started') {
-                setStatus('Model Connected');
-            } else if (data.msg === 'A.E.G.I.S. Stopped') {
-                setStatus('Connected');
-            }
-        });
-        socket.on('audio_data', (data) => {
-            setAiAudioData(data.data);
-        });
-        socket.on('auth_status', (data) => {
-            console.log("Auth Status:", data);
-            setIsAuthenticated(data.authenticated);
-            if (data.authenticated) {
-                // If authenticated, hide lock screen with animation (handled by component if visible)
-                // But simpler: just hide it
-                // Actually, wait for animation if it WAS visible.
-                // For now, let's just assume if authenticated -> hide
-                // But we want the component to invoke onAnimationComplete.
-                // If we are starting up (and face auth disabled), we want it FALSE immediately.
-                if (!isLockScreenVisible) {
-                    // Do nothing, already hidden
-                }
-            } else {
-                // If NOT authenticated, show lock screen
-                setIsLockScreenVisible(true);
-            }
-        });
-
-        socket.on('settings', (settings) => {
-            console.log("[Settings] Received:", settings);
-            if (settings && typeof settings.face_auth_enabled !== 'undefined') {
-                setFaceAuthEnabled(settings.face_auth_enabled);
-                localStorage.setItem('face_auth_enabled', settings.face_auth_enabled);
-            }
-            if (typeof settings.camera_flipped !== 'undefined') {
-                console.log("[Settings] Camera flip set to:", settings.camera_flipped);
-                setIsCameraFlipped(settings.camera_flipped);
-            }
-        });
-        socket.on('error', (data) => {
-            console.error("Socket Error:", data);
-            addMessage('System', `Error: ${data.msg}`);
-        });
-        socket.on('cad_data', (data) => {
-            console.log("Received CAD Data:", data);
-            setCadData(data);
-            setCadThoughts(''); // Clear thoughts when generation complete
-            setShowCadWindow(true); // Open window when data arrives
-            // Auto-show the window if it's hidden, clamped to viewport
-            if (!elementPositions.cad) {
-                const size = { w: 400, h: 400 };
-                const clamped = clampToViewport({ x: window.innerWidth / 2 + 150, y: window.innerHeight / 2 }, size);
-                setElementPositions(prev => ({
-                    ...prev,
-                    cad: clamped
-                }));
-            }
-        });
-        socket.on('cad_status', (data) => {
-            console.log("Received CAD Status:", data);
-            // Extract retry info from extended payload
-            if (data.attempt) {
-                setCadRetryInfo({
-                    attempt: data.attempt,
-                    maxAttempts: data.max_attempts || 3,
-                    error: data.error
-                });
-            }
-            if (data.status === 'generating' || data.status === 'retrying') {
-                setCadData({ format: 'loading' });
-                setShowCadWindow(true);
-                if (data.status === 'generating' && data.attempt === 1) {
-                    setCadThoughts(''); // Clear previous thoughts for new generation
-                }
-                // Auto-show the window, clamped to viewport
-                if (!elementPositions.cad) {
-                    const size = { w: 400, h: 400 };
-                    const clamped = clampToViewport({ x: window.innerWidth / 2 + 150, y: window.innerHeight / 2 }, size);
-                    setElementPositions(prev => ({
-                        ...prev,
-                        cad: clamped
-                    }));
-                }
-            } else if (data.status === 'failed') {
-                // Keep loading state but show error
-                setCadData({ format: 'loading' });
-            }
-        });
-        socket.on('cad_thought', (data) => {
-            // Append streaming thought text
-            setCadThoughts(prev => prev + data.text);
-        });
-        socket.on('browser_frame', (data) => {
-            setBrowserData(prev => ({
-                image: data.image,
-                logs: [...prev.logs, data.log].filter(l => l).slice(-50) // Keep last 50 logs
-            }));
-            setShowBrowserWindow(true);
-            // Auto-show browser window if hidden, clamped to viewport
-            if (!elementPositions.browser) {
-                const size = { w: 550, h: 380 };
-                const clamped = clampToViewport({ x: window.innerWidth / 2 - 200, y: window.innerHeight / 2 }, size);
-                setElementPositions(prev => ({
-                    ...prev,
-                    browser: clamped
-                }));
-            }
-        });
-
-        // Handle streaming transcription
-        socket.on('transcription', (data) => {
-            setMessages(prev => {
-                const lastMsg = prev[prev.length - 1];
-
-                // If the last message is from the same sender, append the chunk
-                if (lastMsg && lastMsg.sender === data.sender) {
-                    // Create a NEW object instead of mutating (prevents React StrictMode duplication)
-                    return [
-                        ...prev.slice(0, -1),
-                        {
-                            ...lastMsg,
-                            text: lastMsg.text + data.text
-                        }
-                    ];
-                } else {
-                    // New message block
-                    return [...prev, {
-                        sender: data.sender,
-                        text: data.text,
-                        time: new Date().toLocaleTimeString()
-                    }];
-                }
-            });
-        });
-
-        // Handle tool confirmation requests
+        socket.on('audio_data', (data) => setAiAudioData(data.data));
         socket.on('tool_confirmation_request', (data) => {
             console.log("Received Confirmation Request:", data);
             setConfirmationRequest(data);
         });
-
-        // Handle Print Window Request (from CadWindow)
-        socket.on('request_print_window', () => {
-            setShowPrinterWindow(true);
-            const size = { w: 380, h: 380 };
-            const clamped = clampToViewport({ x: window.innerWidth / 2, y: window.innerHeight / 2 }, size);
-            setElementPositions(prev => ({
-                ...prev,
-                printer: clamped
-            }));
-        });
-
-        // Kasa Devices
-        socket.on('kasa_devices', (devices) => {
-            console.log("Kasa Devices:", devices);
-            setKasaDevices(devices);
-        });
-
-        socket.on('kasa_update', (data) => {
-            setKasaDevices(prev => prev.map(d => {
-                if (d.ip === data.ip) {
-                    // Update only fields that are not null/undefined
-                    return {
-                        ...d,
-                        is_on: data.is_on !== null ? data.is_on : d.is_on,
-                        brightness: data.brightness !== null ? data.brightness : d.brightness
-                    };
-                }
-                return d;
-            }));
-        });
-
         socket.on('project_update', (data) => {
             console.log("Project Update:", data.project);
             setCurrentProject(data.project);
             addMessage('System', `Switched to project: ${data.project}`);
         });
 
-        // Track printer count for toolbar display
-        socket.on('printer_list', (list) => {
-            console.log('[PRINTERS] Count:', list.length);
-            setPrinterCount(list.length);
-        });
-
-        // Slicing progress for top toolbar
-        socket.on('slicing_progress', (data) => {
-            console.log('[SLICING] Progress:', data);
-            setSlicingStatus({
-                active: data.percent < 100,
-                percent: data.percent,
-                message: data.message
-            });
-        });
-
-        // Print status for top toolbar - track active prints
-        socket.on('print_status_update', (data) => {
-            console.log('[PRINT STATUS]', data);
-            // Only show in toolbar if actively printing
-            if (data.state && data.state.toLowerCase().includes('print')) {
-                setActivePrintStatus({
-                    printer: data.printer,
-                    progress_percent: data.progress_percent,
-                    time_elapsed: data.time_elapsed,
-                    state: data.state
-                });
-            } else if (data.state && (data.state.toLowerCase() === 'idle' || data.state.toLowerCase() === 'standby' || data.state.toLowerCase() === 'complete')) {
-                // Clear if print finished or idle
-                setActivePrintStatus(null);
-            }
-        });
-
-
-
-        // Get All Media Devices (Microphones, Speakers, Webcams)
-        navigator.mediaDevices.enumerateDevices().then(devs => {
-            const audioInputs = devs.filter(d => d.kind === 'audioinput');
-            const audioOutputs = devs.filter(d => d.kind === 'audiooutput');
-            const videoInputs = devs.filter(d => d.kind === 'videoinput');
-
-            setMicDevices(audioInputs);
-            setSpeakerDevices(audioOutputs);
-            setWebcamDevices(videoInputs);
-
-            // Restore saved microphone or use first available
-            const savedMicId = localStorage.getItem('selectedMicId');
-            if (savedMicId && audioInputs.some(d => d.deviceId === savedMicId)) {
-                setSelectedMicId(savedMicId);
-            } else if (audioInputs.length > 0) {
-                setSelectedMicId(audioInputs[0].deviceId);
-            }
-
-            // Restore saved speaker or use first available
-            const savedSpeakerId = localStorage.getItem('selectedSpeakerId');
-            if (savedSpeakerId && audioOutputs.some(d => d.deviceId === savedSpeakerId)) {
-                setSelectedSpeakerId(savedSpeakerId);
-            } else if (audioOutputs.length > 0) {
-                setSelectedSpeakerId(audioOutputs[0].deviceId);
-            }
-
-            // Restore saved webcam or use first available
-            const savedWebcamId = localStorage.getItem('selectedWebcamId');
-            if (savedWebcamId && videoInputs.some(d => d.deviceId === savedWebcamId)) {
-                setSelectedWebcamId(savedWebcamId);
-            } else if (videoInputs.length > 0) {
-                setSelectedWebcamId(videoInputs[0].deviceId);
-            }
-        });
-
-        // Initialize Hand Landmarker
         const initHandLandmarker = async () => {
             try {
                 console.log("Initializing HandLandmarker...");
-
-                // 1. Verify Model File
-                console.log("Fetching model file...");
                 const response = await fetch('/hand_landmarker.task');
                 if (!response.ok) {
                     throw new Error(`Failed to fetch model: ${response.status} ${response.statusText}`);
                 }
-                console.log("Model file found:", response.headers.get('content-type'), response.headers.get('content-length'));
-
-                // 2. Initialize Vision
-                console.log("Initializing FilesetResolver...");
                 const vision = await FilesetResolver.forVisionTasks(
                     "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/wasm"
                 );
-                console.log("FilesetResolver initialized.");
-
-                // 3. Create Landmarker
-                console.log("Creating HandLandmarker (GPU)...");
                 handLandmarkerRef.current = await HandLandmarker.createFromOptions(vision, {
                     baseOptions: {
                         modelAssetPath: `/hand_landmarker.task`,
-                        delegate: "GPU" // Enable GPU acceleration
+                        delegate: "GPU"
                     },
                     runningMode: "VIDEO",
                     numHands: 1
                 });
-                console.log("HandLandmarker initialized successfully!");
                 addMessage('System', 'Hand Tracking Ready');
-
             } catch (error) {
                 console.error("Failed to initialize HandLandmarker:", error);
                 addMessage('System', `Hand Tracking Error: ${error.message}`);
@@ -618,56 +161,20 @@ function App() {
         initHandLandmarker();
 
         return () => {
-            socket.off('connect');
-            socket.off('disconnect');
-            socket.off('status');
             socket.off('audio_data');
-            socket.off('cad_data');
-            socket.off('cad_thought');
-            socket.off('cad_status');
-            socket.off('browser_frame');
-            socket.off('transcription');
             socket.off('tool_confirmation_request');
-            socket.off('kasa_devices');
-            socket.off('printer_list');
-            socket.off('slicing_progress');
-            socket.off('print_status_update');
-            socket.off('error');
-
+            socket.off('project_update');
             stopMicVisualizer();
             stopVideo();
         };
-    }, []);
+    }, [socket, addMessage]);
 
-    // Initial check in case we are already connected (fix race condition)
     useEffect(() => {
-        if (socket.connected) {
+        if (socket && socket.connected) {
             setStatus('Connected');
             socket.emit('get_settings');
         }
-    }, []);
-
-    // Persist device selections to localStorage when they change
-    useEffect(() => {
-        if (selectedMicId) {
-            localStorage.setItem('selectedMicId', selectedMicId);
-            console.log('[Settings] Saved microphone:', selectedMicId);
-        }
-    }, [selectedMicId]);
-
-    useEffect(() => {
-        if (selectedSpeakerId) {
-            localStorage.setItem('selectedSpeakerId', selectedSpeakerId);
-            console.log('[Settings] Saved speaker:', selectedSpeakerId);
-        }
-    }, [selectedSpeakerId]);
-
-    useEffect(() => {
-        if (selectedWebcamId) {
-            localStorage.setItem('selectedWebcamId', selectedWebcamId);
-            console.log('[Settings] Saved webcam:', selectedWebcamId);
-        }
-    }, [selectedWebcamId]);
+    }, [socket]);
 
     // Start/Stop Mic Visualizer
     useEffect(() => {
@@ -1067,10 +574,6 @@ function App() {
         }
     };
 
-    const addMessage = (sender, text) => {
-        setMessages(prev => [...prev, { sender, text, time: new Date().toLocaleTimeString() }]);
-    };
-
     const togglePower = () => {
         if (isConnected) {
             socket.emit('stop_audio');
@@ -1093,14 +596,6 @@ function App() {
         } else {
             socket.emit('pause_audio');
             setIsMuted(true);
-        }
-    };
-
-    const handleSend = (e) => {
-        if (e.key === 'Enter' && inputValue.trim()) {
-            socket.emit('user_input', { text: inputValue });
-            addMessage('You', inputValue);
-            setInputValue('');
         }
     };
 
@@ -1165,164 +660,6 @@ function App() {
             socket.emit('confirm_tool', { id: confirmationRequest.id, confirmed: false });
             setConfirmationRequest(null);
         }
-    };
-
-    // Updated Bounds Checking Logic
-    const updateElementPosition = (id, dx, dy) => {
-        setElementPositions(prev => {
-            const currentPos = prev[id];
-            const size = elementSizes[id] || { w: 100, h: 100 }; // Fallback
-            let newX = currentPos.x + dx;
-            let newY = currentPos.y + dy;
-
-            // Bounds Logic
-            // Depends on anchor point.
-            // Visualizer, Tools, Cad, Browser, Kasa: translate(-50%, -50%) -> Center Anchor
-            // Chat: translate(-50%, 0) -> Top-Center Anchor
-            // Video: Top-Left Anchor (default div)
-
-            const width = window.innerWidth;
-            const height = window.innerHeight;
-            const margin = 0; // Strict bounds
-
-            if (id === 'chat') {
-                // Anchor: Top-Center (x is center, y is top)
-                // X Bounds: size.w/2 <= x <= width - size.w/2
-                newX = Math.max(size.w / 2 + margin, Math.min(width - size.w / 2 - margin, newX));
-                // Y Bounds: 0 <= y <= height - size.h
-                newY = Math.max(margin, Math.min(height - size.h - margin, newY));
-
-            } else if (id === 'video') {
-                // Anchor: Top-Left
-                newX = Math.max(margin, Math.min(width - size.w - margin, newX));
-                newY = Math.max(margin, Math.min(height - size.h - margin, newY));
-
-            } else {
-                // Anchor: Center
-                newX = Math.max(size.w / 2 + margin, Math.min(width - size.w / 2 - margin, newX));
-                newY = Math.max(size.h / 2 + margin, Math.min(height - size.h / 2 - margin, newY));
-            }
-
-            return {
-                ...prev,
-                [id]: {
-                    x: newX,
-                    y: newY
-                }
-            };
-        });
-    };
-
-    // --- MOUSE DRAG HANDLERS ---
-    const handleMouseDown = (e, id) => {
-        console.log(`[MouseDrag] MouseDown on ${id}`, { target: e.target.tagName });
-
-        // Fixed elements that should never be draggable (even in modular mode)
-        const fixedElements = ['visualizer', 'chat', 'video', 'tools'];
-        if (fixedElements.includes(id)) {
-            console.log(`[MouseDrag] ${id} is a fixed element, not draggable`);
-            return;
-        }
-
-        // Bring clicked element to front (z-index)
-        bringToFront(id);
-
-        // Prevent dragging if interacting with inputs, buttons, or canvas (for 3D controls)
-        const tagName = e.target.tagName.toLowerCase();
-        if (tagName === 'input' || tagName === 'button' || tagName === 'textarea' || tagName === 'canvas' || e.target.closest('button')) {
-            console.log("[MouseDrag] Interaction blocked by interactive element");
-            return;
-        }
-
-        // Check if clicking on a drag handle section (data-drag-handle attribute)
-        const isDragHandle = e.target.closest('[data-drag-handle]');
-        if (!isDragHandle && !isModularModeRef.current) {
-            // If not clicking a drag handle and modular mode is off, don't drag
-            // This allows popup windows to have dedicated drag areas
-            console.log("[MouseDrag] Not a drag handle and modular mode off");
-            return;
-        }
-
-        const elPos = elementPositions[id];
-        if (!elPos) return;
-
-        // Calculate offset based on anchor point
-        // Most are Center Anchored (x, y is center)
-        // Chat is Top-Center Anchored (x is center, y is top)
-        // Video is Top-Left Anchored (x is left, y is top)
-
-        // We want: MousePos = ElementPos + Offset
-        // So: Offset = MousePos - ElementPos
-        dragOffsetRef.current = {
-            x: e.clientX - elPos.x,
-            y: e.clientY - elPos.y
-        };
-
-        setActiveDragElement(id);
-        activeDragElementRef.current = id;
-        isDraggingRef.current = true;
-
-        window.addEventListener('mousemove', handleMouseDrag);
-        window.addEventListener('mouseup', handleMouseUp);
-    };
-
-    const handleMouseDrag = (e) => {
-        if (!isDraggingRef.current || !activeDragElementRef.current) return;
-
-        const id = activeDragElementRef.current;
-        const currentPos = elementPositionsRef.current[id];
-        if (!currentPos) return;
-
-        // Target Position = MousePos - Offset
-        // But we want delta for updateElementPosition??
-        // actually updateElementPosition takes dx, dy.
-        // Let's just set the position directly or calculate delta.
-        // Since updateElementPosition has bounds logic, let's use it, but we need delta from PREVIOUS position?
-        // OR we can refactor updateElementPosition to take absolute.
-        // Let's stick to calculating new position and manually updating state with bounds logic inside a setter.
-
-        // Actually, updateElementPosition uses setElementPositions(prev => ...).
-        // Let's duplicate bounds logic for mouse drag to be precise or reuse.
-        // reusing updateElementPosition requires calculating dx/dy from *current state* which might be lagging in the closure?
-        // No, functional update is fine.
-
-        // But for smooth mouse drag, absolute position is better.
-        const rawNewX = e.clientX - dragOffsetRef.current.x;
-        const rawNewY = e.clientY - dragOffsetRef.current.y;
-
-        setElementPositions(prev => {
-            const size = elementSizes[id] || { w: 100, h: 100 }; // Fallback
-            let newX = rawNewX;
-            let newY = rawNewY;
-
-            const width = window.innerWidth;
-            const height = window.innerHeight;
-            const margin = 0;
-
-            if (id === 'chat') {
-                newX = Math.max(size.w / 2 + margin, Math.min(width - size.w / 2 - margin, newX));
-                newY = Math.max(margin, Math.min(height - size.h - margin, newY));
-            } else if (id === 'video') {
-                newX = Math.max(margin, Math.min(width - size.w - margin, newX));
-                newY = Math.max(margin, Math.min(height - size.h - margin, newY));
-            } else {
-                newX = Math.max(size.w / 2 + margin, Math.min(width - size.w / 2 - margin, newX));
-                newY = Math.max(size.h / 2 + margin, Math.min(height - size.h / 2 - margin, newY));
-            }
-
-            return {
-                ...prev,
-                [id]: { x: newX, y: newY }
-            };
-        });
-    };
-
-    const handleMouseUp = () => {
-        isDraggingRef.current = false;
-        setActiveDragElement(null);
-        activeDragElementRef.current = null;
-        window.removeEventListener('mousemove', handleMouseDrag);
-        window.removeEventListener('mouseup', handleMouseUp);
     };
 
     // Calculate Average Audio Amplitude for Background Pulse
@@ -1533,79 +870,46 @@ function App() {
 
                 {/* CAD Window Overlay - Moved outside of Video so it can show independently */}
                 {showCadWindow && (
-                    <div
+                    <DraggableWindow
                         id="cad"
-                        className={`absolute flex flex-col transition-all duration-200 
-                        backdrop-blur-xl bg-black/40 border border-white/10 shadow-2xl overflow-hidden rounded-2xl
-                        ${activeDragElement === 'cad' ? 'ring-2 ring-green-500 bg-green-500/10' : ''}
-                    `}
-                        style={{
-                            left: elementPositions.cad?.x || window.innerWidth / 2,
-                            top: elementPositions.cad?.y || window.innerHeight / 2,
-                            transform: 'translate(-50%, -50%)',
-                            width: `${elementSizes.cad.w}px`,
-                            height: `${elementSizes.cad.h}px`,
-                            pointerEvents: 'auto',
-                            zIndex: getZIndex('cad')
-                        }}
-                        onMouseDown={(e) => handleMouseDown(e, 'cad')}
+                        position={elementPositions.cad}
+                        size={elementSizes.cad}
+                        zIndex={getZIndex('cad')}
+                        onMouseDown={handleMouseDown}
+                        activeDragElement={activeDragElement}
+                        title="CAD PROTOTYPE"
+                        onClose={() => setShowCadWindow(false)}
                     >
-                        {/* Drag Handle Header */}
-                        <div
-                            data-drag-handle
-                            className="h-8 bg-gray-900/80 border-b border-cyan-500/20 flex items-center justify-between px-3 cursor-grab active:cursor-grabbing shrink-0"
-                        >
-                            <span className="text-xs font-bold tracking-widest text-cyan-500/70">CAD PROTOTYPE</span>
-                            <button
-                                onClick={() => setShowCadWindow(false)}
-                                className="text-gray-400 hover:text-red-400 hover:bg-red-500/20 p-1 rounded transition-colors"
-                            >
-                                ✕
-                            </button>
-                        </div>
-                        <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-10 pointer-events-none mix-blend-overlay z-10"></div>
-                        <div className="relative z-20 flex-1 min-h-0">
-                            <CadWindow
-                                data={cadData}
-                                thoughts={cadThoughts}
-                                retryInfo={cadRetryInfo}
-                                onClose={() => setShowCadWindow(false)}
-                                socket={socket}
-                            />
-                        </div>
-                    </div>
+                        <CadWindow
+                            data={cadData}
+                            thoughts={cadThoughts}
+                            retryInfo={cadRetryInfo}
+                            onClose={() => setShowCadWindow(false)}
+                            socket={socket}
+                        />
+                    </DraggableWindow>
                 )}
 
 
                 {/* Browser Window Overlay */}
                 {showBrowserWindow && (
-                    <div
+                    <DraggableWindow
                         id="browser"
-                        className={`absolute flex flex-col transition-all duration-200 
-                        backdrop-blur-xl bg-black/40 border border-white/10 shadow-2xl overflow-hidden rounded-lg
-                        ${activeDragElement === 'browser' ? 'ring-2 ring-green-500 bg-green-500/10' : ''}
-                    `}
-                        style={{
-                            left: elementPositions.browser?.x || window.innerWidth / 2 - 200,
-                            top: elementPositions.browser?.y || window.innerHeight / 2,
-                            transform: 'translate(-50%, -50%)',
-                            width: `${elementSizes.browser.w}px`,
-                            height: `${elementSizes.browser.h}px`,
-                            pointerEvents: 'auto',
-                            zIndex: getZIndex('browser')
-                        }}
-                        onMouseDown={(e) => handleMouseDown(e, 'browser')}
+                        position={elementPositions.browser}
+                        size={elementSizes.browser}
+                        zIndex={getZIndex('browser')}
+                        onMouseDown={handleMouseDown}
+                        activeDragElement={activeDragElement}
+                        onClose={() => setShowBrowserWindow(false)}
+                        renderHeader={false}
                     >
-                        <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-10 pointer-events-none mix-blend-overlay z-10"></div>
-                        <div className="relative z-20 w-full h-full">
-                            <BrowserWindow
-                                imageSrc={browserData.image}
-                                logs={browserData.logs}
-                                onClose={() => setShowBrowserWindow(false)}
-                                socket={socket}
-                            />
-                        </div>
-                    </div>
+                        <BrowserWindow
+                            imageSrc={browserData.image}
+                            logs={browserData.logs}
+                            onClose={() => setShowBrowserWindow(false)}
+                            socket={socket}
+                        />
+                    </DraggableWindow>
                 )}
 
 

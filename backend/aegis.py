@@ -22,7 +22,7 @@ if sys.version_info < (3, 11, 0):
     asyncio.TaskGroup = taskgroup.TaskGroup
     asyncio.ExceptionGroup = exceptiongroup.ExceptionGroup
 
-from tools import tools_list
+from tool_registry import get_tools_for_gemini
 
 FORMAT = pyaudio.paInt16
 CHANNELS = 1
@@ -36,164 +36,17 @@ DEFAULT_MODE = "camera"
 load_dotenv()
 client = genai.Client(http_options={"api_version": "v1beta"}, api_key=os.getenv("GEMINI_API_KEY"))
 
-# Function definitions
-generate_cad = {
-    "name": "generate_cad",
-    "description": "Generates a 3D CAD model based on a prompt.",
-    "parameters": {
-        "type": "OBJECT",
-        "properties": {
-            "prompt": {"type": "STRING", "description": "The description of the object to generate."}
-        },
-        "required": ["prompt"]
-    },
-    "behavior": "NON_BLOCKING"
-}
-
-run_web_agent = {
-    "name": "run_web_agent",
-    "description": "Opens a web browser and performs a task according to the prompt.",
-    "parameters": {
-        "type": "OBJECT",
-        "properties": {
-            "prompt": {"type": "STRING", "description": "The detailed instructions for the web browser agent."}
-        },
-        "required": ["prompt"]
-    },
-    "behavior": "NON_BLOCKING"
-}
-
-create_project_tool = {
-    "name": "create_project",
-    "description": "Creates a new project folder to organize files.",
-    "parameters": {
-        "type": "OBJECT",
-        "properties": {
-            "name": {"type": "STRING", "description": "The name of the new project."}
-        },
-        "required": ["name"]
-    }
-}
-
-switch_project_tool = {
-    "name": "switch_project",
-    "description": "Switches the current active project context.",
-    "parameters": {
-        "type": "OBJECT",
-        "properties": {
-            "name": {"type": "STRING", "description": "The name of the project to switch to."}
-        },
-        "required": ["name"]
-    }
-}
-
-list_projects_tool = {
-    "name": "list_projects",
-    "description": "Lists all available projects.",
-    "parameters": {
-        "type": "OBJECT",
-        "properties": {},
-    }
-}
-
-list_smart_devices_tool = {
-    "name": "list_smart_devices",
-    "description": "Lists all available smart home devices (lights, plugs, etc.) on the network.",
-    "parameters": {
-        "type": "OBJECT",
-        "properties": {},
-    }
-}
-
-control_light_tool = {
-    "name": "control_light",
-    "description": "Controls a smart light device.",
-    "parameters": {
-        "type": "OBJECT",
-        "properties": {
-            "target": {
-                "type": "STRING",
-                "description": "The IP address of the device to control. Always prefer the IP address over the alias for reliability."
-            },
-            "action": {
-                "type": "STRING",
-                "description": "The action to perform: 'turn_on', 'turn_off', or 'set'."
-            },
-            "brightness": {
-                "type": "INTEGER",
-                "description": "Optional brightness level (0-100)."
-            },
-            "color": {
-                "type": "STRING",
-                "description": "Optional color name (e.g., 'red', 'cool white') or 'warm'."
-            }
-        },
-        "required": ["target", "action"]
-    }
-}
-
-discover_printers_tool = {
-    "name": "discover_printers",
-    "description": "Discovers 3D printers available on the local network.",
-    "parameters": {
-        "type": "OBJECT",
-        "properties": {},
-    }
-}
-
-print_stl_tool = {
-    "name": "print_stl",
-    "description": "Prints an STL file to a 3D printer. Handles slicing the STL to G-code and uploading to the printer.",
-    "parameters": {
-        "type": "OBJECT",
-        "properties": {
-            "stl_path": {"type": "STRING", "description": "Path to STL file, or 'current' for the most recent CAD model."},
-            "printer": {"type": "STRING", "description": "Printer name or IP address."},
-            "profile": {"type": "STRING", "description": "Optional slicer profile name."}
-        },
-        "required": ["stl_path", "printer"]
-    }
-}
-
-get_print_status_tool = {
-    "name": "get_print_status",
-    "description": "Gets the current status of a 3D printer including progress, time remaining, and temperatures.",
-    "parameters": {
-        "type": "OBJECT",
-        "properties": {
-            "printer": {"type": "STRING", "description": "Printer name or IP address."}
-        },
-        "required": ["printer"]
-    }
-}
-
-iterate_cad_tool = {
-    "name": "iterate_cad",
-    "description": "Modifies or iterates on the current CAD design based on user feedback. Use this when the user asks to adjust, change, modify, or iterate on the existing 3D model (e.g., 'make it taller', 'add a handle', 'reduce the thickness').",
-    "parameters": {
-        "type": "OBJECT",
-        "properties": {
-            "prompt": {"type": "STRING", "description": "The changes or modifications to apply to the current design."}
-        },
-        "required": ["prompt"]
-    },
-    "behavior": "NON_BLOCKING"
-}
-
-tools = [{'google_search': {}}, {"function_declarations": [generate_cad, run_web_agent, create_project_tool, switch_project_tool, list_projects_tool, list_smart_devices_tool, control_light_tool, discover_printers_tool, print_stl_tool, get_print_status_tool, iterate_cad_tool] + tools_list[0]['function_declarations'][1:]}]
-
 # --- CONFIG UPDATE: Enabled Transcription ---
 config = types.LiveConnectConfig(
     response_modalities=["AUDIO"],
-    # We switch these from [] to {} to enable them with default settings
-    output_audio_transcription={}, 
+    output_audio_transcription={},
     input_audio_transcription={},
     system_instruction="Your name is A.E.G.I.S., which stands for Artificial Engineering & Generative Intelligence System. "
         "You possess the sophisticated, witty, and dryly charming personality of a British digital butler, reminiscent of J.A.R.V.I.S. "
         "Your creator is Rishi, and you always address him as 'Sir'. "
         "When answering, respond using complete and concise sentences to keep a quick pacing and maintain a professional yet cutting-edge aura. "
         "Maintain a calm, composed, and highly efficient tone.",
-    tools=tools,
+    tools=get_tools_for_gemini(),
     speech_config=types.SpeechConfig(
         voice_config=types.VoiceConfig(
             prebuilt_voice_config=types.PrebuiltVoiceConfig(
@@ -203,6 +56,25 @@ config = types.LiveConnectConfig(
     )
 )
 
+# Re-export tool declarations for tests that import from aegis
+from tool_registry import FUNCTION_DECLARATIONS
+
+def _tool_by_name(name):
+    for t in FUNCTION_DECLARATIONS:
+        if t["name"] == name:
+            return t
+    return None
+
+
+generate_cad = _tool_by_name("generate_cad")
+run_web_agent = _tool_by_name("run_web_agent")
+print_stl_tool = _tool_by_name("print_stl")
+discover_printers_tool = _tool_by_name("discover_printers")
+list_smart_devices_tool = _tool_by_name("list_smart_devices")
+control_light_tool = _tool_by_name("control_light")
+list_projects_tool = _tool_by_name("list_projects")
+iterate_cad_tool = _tool_by_name("iterate_cad")
+
 pya = pyaudio.PyAudio()
 
 from cad_agent import CadAgent
@@ -211,7 +83,7 @@ from kasa_agent import KasaAgent
 from printer_agent import PrinterAgent
 
 class AudioLoop:
-    def __init__(self, video_mode=DEFAULT_MODE, on_audio_data=None, on_video_frame=None, on_cad_data=None, on_web_data=None, on_transcription=None, on_tool_confirmation=None, on_cad_status=None, on_cad_thought=None, on_project_update=None, on_device_update=None, on_error=None, input_device_index=None, input_device_name=None, output_device_index=None, kasa_agent=None):
+    def __init__(self, video_mode=DEFAULT_MODE, on_audio_data=None, on_video_frame=None, on_cad_data=None, on_web_data=None, on_transcription=None, on_tool_confirmation=None, on_cad_status=None, on_cad_thought=None, on_project_update=None, on_device_update=None, on_error=None, input_device_index=None, input_device_name=None, output_device_index=None, kasa_agent=None, memory=None):
         self.video_mode = video_mode
         self.on_audio_data = on_audio_data
         self.on_video_frame = on_video_frame
@@ -227,6 +99,7 @@ class AudioLoop:
         self.input_device_index = input_device_index
         self.input_device_name = input_device_name
         self.output_device_index = output_device_index
+        self.memory = memory
 
         self.audio_in_queue = None
         self.out_queue = None
@@ -237,6 +110,11 @@ class AudioLoop:
         # Track last transcription text to calculate deltas (Gemini sends cumulative text)
         self._last_input_transcription = ""
         self._last_output_transcription = ""
+
+        # HippoMem long-term memory: track completed turns for encode
+        self._turn_history = []
+        self._current_user_text = ""
+        self._current_ai_text = ""
 
         self.audio_in_queue = None
         self.out_queue = None
@@ -289,13 +167,40 @@ class AudioLoop:
             pass
 
     def flush_chat(self):
-        """Forces the current chat buffer to be written to log."""
+        """Forces the current chat buffer to be written to log and optionally stores turn in long-term memory."""
         if self.chat_buffer["sender"] and self.chat_buffer["text"].strip():
-            self.project_manager.log_chat(self.chat_buffer["sender"], self.chat_buffer["text"])
+            sender = self.chat_buffer["sender"]
+            text = self.chat_buffer["text"].strip()
+            if sender == "User":
+                self._current_user_text = text
+                self._current_ai_text = ""
+            elif sender == "A.E.G.I.S.":
+                self._current_ai_text = text
+                if self._current_user_text and self._current_ai_text and self.memory and self.memory.service:
+                    asyncio.create_task(self._memory_encode_turn())
+            self.project_manager.log_chat(sender, text)
             self.chat_buffer = {"sender": None, "text": ""}
         # Reset transcription tracking for new turn
         self._last_input_transcription = ""
         self._last_output_transcription = ""
+
+    async def _memory_encode_turn(self):
+        """Store completed user/AI turn in long-term memory (HippoMem). Non-blocking."""
+        if not self.memory or not self.memory.service:
+            return
+        try:
+            user_text = self._current_user_text
+            ai_text = self._current_ai_text
+            if not user_text or not ai_text:
+                return
+            self._turn_history.append((user_text, ai_text))
+            self._turn_history = self._turn_history[-20:]
+            history = self._turn_history[:-1]
+            await self.memory.remember(user_text, ai_text, conversation_history=history)
+            self._current_user_text = ""
+            self._current_ai_text = ""
+        except Exception as e:
+            print(f"[AEGIS] Memory encode error: {e}")
 
     def update_permissions(self, new_perms):
         print(f"[AEGIS DEBUG] [CONFIG] Updating tool permissions: {new_perms}")
@@ -637,486 +542,413 @@ class AudioLoop:
         except Exception as e:
              print(f"[AEGIS DEBUG] [ERR] Failed to send web agent result to model: {e}")
 
+    def _push_audio_data(self, response):
+        """Enqueue raw audio bytes from response for playback."""
+        if data := response.data:
+            self.audio_in_queue.put_nowait(data)
+
+    def _process_transcription(self, response):
+        """Handle input/output transcription: deltas, frontend, chat buffer."""
+        if not response.server_content:
+            return
+        sc = response.server_content
+        if sc.input_transcription and (transcript := sc.input_transcription.text):
+            if transcript != self._last_input_transcription:
+                delta = transcript[len(self._last_input_transcription):] if transcript.startswith(self._last_input_transcription) else transcript
+                self._last_input_transcription = transcript
+                if delta:
+                    self.clear_audio_queue()
+                    if self.on_transcription:
+                        self.on_transcription({"sender": "User", "text": delta})
+                    if self.chat_buffer["sender"] != "User":
+                        if self.chat_buffer["sender"] and self.chat_buffer["text"].strip():
+                            self.project_manager.log_chat(self.chat_buffer["sender"], self.chat_buffer["text"])
+                        self.chat_buffer = {"sender": "User", "text": delta}
+                    else:
+                        self.chat_buffer["text"] += delta
+        if sc.output_transcription and (transcript := sc.output_transcription.text):
+            if transcript != self._last_output_transcription:
+                delta = transcript[len(self._last_output_transcription):] if transcript.startswith(self._last_output_transcription) else transcript
+                self._last_output_transcription = transcript
+                if delta:
+                    if self.on_transcription:
+                        self.on_transcription({"sender": "A.E.G.I.S.", "text": delta})
+                    if self.chat_buffer["sender"] != "A.E.G.I.S.":
+                        if self.chat_buffer["sender"] and self.chat_buffer["text"].strip():
+                            self.project_manager.log_chat(self.chat_buffer["sender"], self.chat_buffer["text"])
+                        self.chat_buffer = {"sender": "A.E.G.I.S.", "text": delta}
+                    else:
+                        self.chat_buffer["text"] += delta
+
+    def _finish_turn(self):
+        """Flush chat buffer and drain audio queue at end of turn."""
+        self.flush_chat()
+        while not self.audio_in_queue.empty():
+            self.audio_in_queue.get_nowait()
+
+    async def _process_tool_calls(self, response):
+        """Handle tool_call in response: confirmation, dispatch, send_tool_response."""
+        if not response.tool_call:
+            return
+        print("The tool was called")
+        function_responses = []
+        for fc in response.tool_call.function_calls:
+            if fc.name in ["generate_cad", "run_web_agent", "write_file", "read_directory", "read_file", "create_project", "switch_project", "list_projects", "list_smart_devices", "control_light", "discover_printers", "print_stl", "get_print_status", "iterate_cad"]:
+                prompt = fc.args.get("prompt", "") # Prompt is not present for all tools
+                # Check Permissions (Default to True if not set)
+                confirmation_required = self.permissions.get(fc.name, True)
+                request_id = None
+                if not confirmation_required:
+                    print(f"[AEGIS DEBUG] [TOOL] Permission check: '{fc.name}' -> AUTO-ALLOW")
+                    # Skip confirmation block and jump to execution
+                    pass
+                else:
+                    # Confirmation Logic
+                    if self.on_tool_confirmation:
+                        import uuid
+                        request_id = str(uuid.uuid4())
+                    print(f"[AEGIS DEBUG] [STOP] Requesting confirmation for '{fc.name}' (ID: {request_id})")
+                    future = asyncio.Future()
+                    self._pending_confirmations[request_id] = future
+                    self.on_tool_confirmation({
+                        "id": request_id, 
+                        "tool": fc.name, 
+                        "args": fc.args
+                    })
+                    try:
+                        # Wait for user response
+                        confirmed = await future
+                    finally:
+                        self._pending_confirmations.pop(request_id, None)
+
+                    print(f"[AEGIS DEBUG] [CONFIRM] Request {request_id} resolved. Confirmed: {confirmed}")
+
+                    if not confirmed:
+                        print(f"[AEGIS DEBUG] [DENY] Tool call '{fc.name}' denied by user.")
+                        function_response = types.FunctionResponse(
+                            id=fc.id,
+                            name=fc.name,
+                            response={
+                                "result": "User denied the request to use this tool.",
+                            }
+                        )
+                        function_responses.append(function_response)
+                        continue
+
+                # If confirmed (or no callback configured, or auto-allowed), proceed
+                if fc.name == "generate_cad":
+                    print(f"\n[AEGIS DEBUG] --------------------------------------------------")
+                    print(f"[AEGIS DEBUG] [TOOL] Tool Call Detected: 'generate_cad'")
+                    print(f"[AEGIS DEBUG] [IN] Arguments: prompt='{prompt}'")
+                    asyncio.create_task(self.handle_cad_request(prompt))
+                    # No function response needed - model already acknowledged when user asked
+                elif fc.name == "run_web_agent":
+                    print(f"[AEGIS DEBUG] [TOOL] Tool Call: 'run_web_agent' with prompt='{prompt}'")
+                    asyncio.create_task(self.handle_web_agent_request(prompt))
+                    result_text = "Web Navigation started. Do not reply to this message."
+                    function_response = types.FunctionResponse(
+                        id=fc.id,
+                        name=fc.name,
+                        response={
+                            "result": result_text,
+                        }
+                    )
+                    print(f"[AEGIS DEBUG] [RESPONSE] Sending function response: {function_response}")
+                    function_responses.append(function_response)
+
+
+
+                elif fc.name == "write_file":
+                    path = fc.args["path"]
+                    content = fc.args["content"]
+                    print(f"[AEGIS DEBUG] [TOOL] Tool Call: 'write_file' path='{path}'")
+                    asyncio.create_task(self.handle_write_file(path, content))
+                    function_response = types.FunctionResponse(
+                        id=fc.id, name=fc.name, response={"result": "Writing file..."}
+                    )
+                    function_responses.append(function_response)
+
+                elif fc.name == "read_directory":
+                    path = fc.args["path"]
+                    print(f"[AEGIS DEBUG] [TOOL] Tool Call: 'read_directory' path='{path}'")
+                    asyncio.create_task(self.handle_read_directory(path))
+                    function_response = types.FunctionResponse(
+                        id=fc.id, name=fc.name, response={"result": "Reading directory..."}
+                    )
+                    function_responses.append(function_response)
+
+                elif fc.name == "read_file":
+                    path = fc.args["path"]
+                    print(f"[AEGIS DEBUG] [TOOL] Tool Call: 'read_file' path='{path}'")
+                    asyncio.create_task(self.handle_read_file(path))
+                    function_response = types.FunctionResponse(
+                        id=fc.id, name=fc.name, response={"result": "Reading file..."}
+                    )
+                    function_responses.append(function_response)
+
+                elif fc.name == "create_project":
+                    name = fc.args["name"]
+                    print(f"[AEGIS DEBUG] [TOOL] Tool Call: 'create_project' name='{name}'")
+                    success, msg = self.project_manager.create_project(name)
+                    if success:
+                        # Auto-switch to the newly created project
+                        self.project_manager.switch_project(name)
+                        msg += f" Switched to '{name}'."
+                        if self.on_project_update:
+                            self.on_project_update(name)
+                    function_response = types.FunctionResponse(
+                        id=fc.id, name=fc.name, response={"result": msg}
+                    )
+                    function_responses.append(function_response)
+
+                elif fc.name == "switch_project":
+                    name = fc.args["name"]
+                    print(f"[AEGIS DEBUG] [TOOL] Tool Call: 'switch_project' name='{name}'")
+                    success, msg = self.project_manager.switch_project(name)
+                    if success:
+                        if self.on_project_update:
+                            self.on_project_update(name)
+                        # Gather project context and send to AI (silently, no response expected)
+                        context = self.project_manager.get_project_context()
+                        print(f"[AEGIS DEBUG] [PROJECT] Sending project context to AI ({len(context)} chars)")
+                        try:
+                            await self.session.send(input=f"System Notification: {msg}\n\n{context}", end_of_turn=False)
+                        except Exception as e:
+                            print(f"[AEGIS DEBUG] [ERR] Failed to send project context: {e}")
+                    function_response = types.FunctionResponse(
+                        id=fc.id, name=fc.name, response={"result": msg}
+                    )
+                    function_responses.append(function_response)
+
+                elif fc.name == "list_projects":
+                    print(f"[AEGIS DEBUG] [TOOL] Tool Call: 'list_projects'")
+                    projects = self.project_manager.list_projects()
+                    function_response = types.FunctionResponse(
+                        id=fc.id, name=fc.name, response={"result": f"Available projects: {', '.join(projects)}"}
+                    )
+                    function_responses.append(function_response)
+
+                elif fc.name == "list_smart_devices":
+                    print(f"[AEGIS DEBUG] [TOOL] Tool Call: 'list_smart_devices'")
+                    # Use cached devices directly for speed
+                    # devices_dict is {ip: SmartDevice}
+                    dev_summaries = []
+                    frontend_list = []
+                    for ip, d in self.kasa_agent.devices.items():
+                        dev_type = "unknown"
+                        if d.is_bulb: dev_type = "bulb"
+                        elif d.is_plug: dev_type = "plug"
+                        elif d.is_strip: dev_type = "strip"
+                        elif d.is_dimmer: dev_type = "dimmer"
+                        # Format for Model
+                        info = f"{d.alias} (IP: {ip}, Type: {dev_type})"
+                        if d.is_on:
+                            info += " [ON]"
+                        else:
+                            info += " [OFF]"
+                        dev_summaries.append(info)
+                        # Format for Frontend
+                        frontend_list.append({
+                            "ip": ip,
+                            "alias": d.alias,
+                            "model": d.model,
+                            "type": dev_type,
+                            "is_on": d.is_on,
+                            "brightness": d.brightness if d.is_bulb or d.is_dimmer else None,
+                            "hsv": d.hsv if d.is_bulb and d.is_color else None,
+                            "has_color": d.is_color if d.is_bulb else False,
+                            "has_brightness": d.is_dimmable if d.is_bulb or d.is_dimmer else False
+                        })
+                    result_str = "No devices found in cache."
+                    if dev_summaries:
+                        result_str = "Found Devices (Cached):\n" + "\n".join(dev_summaries)
+                    # Trigger frontend update
+                    if self.on_device_update:
+                        self.on_device_update(frontend_list)
+
+                    function_response = types.FunctionResponse(
+                        id=fc.id, name=fc.name, response={"result": result_str}
+                    )
+                    function_responses.append(function_response)
+
+                elif fc.name == "control_light":
+                    target = fc.args["target"]
+                    action = fc.args["action"]
+                    brightness = fc.args.get("brightness")
+                    color = fc.args.get("color")
+                    print(f"[AEGIS DEBUG] [TOOL] Tool Call: 'control_light' Target='{target}' Action='{action}'")
+                    result_msg = f"Action '{action}' on '{target}' failed."
+                    success = False
+                    if action == "turn_on":
+                        success = await self.kasa_agent.turn_on(target)
+                        if success:
+                            result_msg = f"Turned ON '{target}'."
+                    elif action == "turn_off":
+                        success = await self.kasa_agent.turn_off(target)
+                        if success:
+                            result_msg = f"Turned OFF '{target}'."
+                    elif action == "set":
+                        success = True
+                        result_msg = f"Updated '{target}':"
+                    # Apply extra attributes if 'set' or if we just turned it on and want to set them too
+                    if success or action == "set":
+                        if brightness is not None:
+                            sb = await self.kasa_agent.set_brightness(target, brightness)
+                            if sb:
+                                result_msg += f" Set brightness to {brightness}."
+                        if color is not None:
+                            sc = await self.kasa_agent.set_color(target, color)
+                            if sc:
+                                result_msg += f" Set color to {color}."
+
+                    # Notify Frontend of State Change
+                    if success:
+                        # We don't need full discovery, just refresh known state or push update
+                        # But for simplicity, let's get the standard list representation
+                        # KasaAgent updates its internal state on control, so we can rebuild the list
+                        # Quick rebuild of list from internal dict
+                        updated_list = []
+                        for ip, dev in self.kasa_agent.devices.items():
+                            # We need to ensure we have the correct dict structure expected by frontend
+                            # We duplicate logic from KasaAgent.discover_devices a bit, but that's okay for now or we can add a helper
+                            # Ideally KasaAgent has a 'get_devices_list()' method.
+                            # Use the cached objects in self.kasa_agent.devices
+                            dev_type = "unknown"
+                            if dev.is_bulb: dev_type = "bulb"
+                            elif dev.is_plug: dev_type = "plug"
+                            elif dev.is_strip: dev_type = "strip"
+                            elif dev.is_dimmer: dev_type = "dimmer"
+
+                            d_info = {
+                                "ip": ip,
+                                "alias": dev.alias,
+                                "model": dev.model,
+                                "type": dev_type,
+                                "is_on": dev.is_on,
+                                "brightness": dev.brightness if dev.is_bulb or dev.is_dimmer else None,
+                                "hsv": dev.hsv if dev.is_bulb and dev.is_color else None,
+                                "has_color": dev.is_color if dev.is_bulb else False,
+                                "has_brightness": dev.is_dimmable if dev.is_bulb or dev.is_dimmer else False
+                            }
+                            updated_list.append(d_info)
+                        if self.on_device_update:
+                            self.on_device_update(updated_list)
+                    else:
+                        # Report Error
+                        if self.on_error:
+                            self.on_error(result_msg)
+
+                    function_response = types.FunctionResponse(
+                        id=fc.id, name=fc.name, response={"result": result_msg}
+                    )
+                    function_responses.append(function_response)
+
+                elif fc.name == "discover_printers":
+                    print(f"[AEGIS DEBUG] [TOOL] Tool Call: 'discover_printers'")
+                    printers = await self.printer_agent.discover_printers()
+                    # Format for model
+                    if printers:
+                        printer_list = []
+                        for p in printers:
+                            printer_list.append(f"{p['name']} ({p['host']}:{p['port']}, type: {p['printer_type']})")
+                        result_str = "Found Printers:\n" + "\n".join(printer_list)
+                    else:
+                        result_str = "No printers found on network. Ensure printers are on and running OctoPrint/Moonraker."
+                    function_response = types.FunctionResponse(
+                        id=fc.id, name=fc.name, response={"result": result_str}
+                    )
+                    function_responses.append(function_response)
+
+                elif fc.name == "print_stl":
+                    stl_path = fc.args["stl_path"]
+                    printer = fc.args["printer"]
+                    profile = fc.args.get("profile")
+                    print(f"[AEGIS DEBUG] [TOOL] Tool Call: 'print_stl' STL='{stl_path}' Printer='{printer}'")
+                    # Resolve 'current' to project STL
+                    if stl_path.lower() == "current":
+                        stl_path = "output.stl" # Let printer agent resolve it in root_path
+
+                    # Get current project path
+                    project_path = str(self.project_manager.get_current_project_path())
+                    result = await self.printer_agent.print_stl(
+                        stl_path, 
+                        printer, 
+                        profile, 
+                        root_path=project_path
+                    )
+                    result_str = result.get("message", "Unknown result")
+                    function_response = types.FunctionResponse(
+                        id=fc.id, name=fc.name, response={"result": result_str}
+                    )
+                    function_responses.append(function_response)
+
+                elif fc.name == "get_print_status":
+                    printer = fc.args["printer"]
+                    print(f"[AEGIS DEBUG] [TOOL] Tool Call: 'get_print_status' Printer='{printer}'")
+                    status = await self.printer_agent.get_print_status(printer)
+                    if status:
+                        result_str = f"Printer: {status.printer}\n"
+                        result_str += f"State: {status.state}\n"
+                        result_str += f"Progress: {status.progress_percent:.1f}%\n"
+                        if status.time_remaining:
+                            result_str += f"Time Remaining: {status.time_remaining}\n"
+                        if status.time_elapsed:
+                            result_str += f"Time Elapsed: {status.time_elapsed}\n"
+                        if status.filename:
+                            result_str += f"File: {status.filename}\n"
+                        if status.temperatures:
+                            temps = status.temperatures
+                            if "hotend" in temps:
+                                result_str += f"Hotend: {temps['hotend']['current']:.0f}°C / {temps['hotend']['target']:.0f}°C\n"
+                            if "bed" in temps:
+                                result_str += f"Bed: {temps['bed']['current']:.0f}°C / {temps['bed']['target']:.0f}°C"
+                    else:
+                        result_str = f"Could not get status for printer '{printer}'. Ensure it is discovered first."
+                    function_response = types.FunctionResponse(
+                        id=fc.id, name=fc.name, response={"result": result_str}
+                    )
+                    function_responses.append(function_response)
+
+                elif fc.name == "iterate_cad":
+                    prompt = fc.args["prompt"]
+                    print(f"[AEGIS DEBUG] [TOOL] Tool Call: 'iterate_cad' Prompt='{prompt}'")
+                    # Emit status
+                    if self.on_cad_status:
+                        self.on_cad_status("generating")
+                    # Get project cad folder path
+                    cad_output_dir = str(self.project_manager.get_current_project_path() / "cad")
+                    # Call CadAgent to iterate on the design
+                    cad_data = await self.cad_agent.iterate_prototype(prompt, output_dir=cad_output_dir)
+                    if cad_data:
+                        print(f"[AEGIS DEBUG] [OK] CadAgent iteration returned data successfully.")
+                        # Dispatch to frontend
+                        if self.on_cad_data:
+                            print(f"[AEGIS DEBUG] [SEND] Dispatching iterated CAD data to frontend...")
+                            self.on_cad_data(cad_data)
+                            print(f"[AEGIS DEBUG] [SENT] Dispatch complete.")
+                        # Save to Project
+                        self.project_manager.save_cad_artifact("output.stl", f"Iteration: {prompt}")
+                        result_str = f"Successfully iterated design: {prompt}. The updated 3D model is now displayed."
+                    else:
+                        print(f"[AEGIS DEBUG] [ERR] CadAgent iteration returned None.")
+                        result_str = f"Failed to iterate design with prompt: {prompt}"
+                    function_response = types.FunctionResponse(
+                        id=fc.id, name=fc.name, response={"result": result_str}
+                    )
+                    function_responses.append(function_response)
+        if function_responses:
+            await self.session.send_tool_response(function_responses=function_responses)
+
     async def receive_audio(self):
-        "Background task to reads from the websocket and write pcm chunks to the output queue"
+        """Background task: read from the websocket and process audio, transcription, and tool calls."""
         try:
             while True:
                 turn = self.session.receive()
                 async for response in turn:
-                    # 1. Handle Audio Data
-                    if data := response.data:
-                        self.audio_in_queue.put_nowait(data)
-                        # NOTE: 'continue' removed here to allow processing transcription/tools in same packet
-
-                    # 2. Handle Transcription (User & Model)
-                    if response.server_content:
-                        if response.server_content.input_transcription:
-                            transcript = response.server_content.input_transcription.text
-                            if transcript:
-                                # Skip if this is an exact duplicate event
-                                if transcript != self._last_input_transcription:
-                                    # Calculate delta (Gemini may send cumulative or chunk-based text)
-                                    delta = transcript
-                                    if transcript.startswith(self._last_input_transcription):
-                                        delta = transcript[len(self._last_input_transcription):]
-                                    self._last_input_transcription = transcript
-                                    
-                                    # Only send if there's new text
-                                    if delta:
-                                        # User is speaking, so interrupt model playback!
-                                        self.clear_audio_queue()
-
-                                        # Send to frontend (Streaming)
-                                        if self.on_transcription:
-                                             self.on_transcription({"sender": "User", "text": delta})
-                                        
-                                        # Buffer for Logging
-                                        if self.chat_buffer["sender"] != "User":
-                                            # Flush previous if exists
-                                            if self.chat_buffer["sender"] and self.chat_buffer["text"].strip():
-                                                self.project_manager.log_chat(self.chat_buffer["sender"], self.chat_buffer["text"])
-                                            # Start new
-                                            self.chat_buffer = {"sender": "User", "text": delta}
-                                        else:
-                                            # Append
-                                            self.chat_buffer["text"] += delta
-                        
-                        if response.server_content.output_transcription:
-                            transcript = response.server_content.output_transcription.text
-                            if transcript:
-                                # Skip if this is an exact duplicate event
-                                if transcript != self._last_output_transcription:
-                                    # Calculate delta (Gemini may send cumulative or chunk-based text)
-                                    delta = transcript
-                                    if transcript.startswith(self._last_output_transcription):
-                                        delta = transcript[len(self._last_output_transcription):]
-                                    self._last_output_transcription = transcript
-                                    
-                                    # Only send if there's new text
-                                    if delta:
-                                        # Send to frontend (Streaming)
-                                        if self.on_transcription:
-                                             self.on_transcription({"sender": "A.E.G.I.S.", "text": delta})
-                                        
-                                        # Buffer for Logging
-                                        if self.chat_buffer["sender"] != "A.E.G.I.S.":
-                                            # Flush previous
-                                            if self.chat_buffer["sender"] and self.chat_buffer["text"].strip():
-                                                self.project_manager.log_chat(self.chat_buffer["sender"], self.chat_buffer["text"])
-                                            # Start new
-                                            self.chat_buffer = {"sender": "A.E.G.I.S.", "text": delta}
-                                        else:
-                                            # Append
-                                            self.chat_buffer["text"] += delta
-                        
-                        # Flush buffer on turn completion if needed, 
-                        # but usually better to wait for sender switch or explicit end.
-                        # We can also check turn_complete signal if available in response.server_content.model_turn etc
-
-                    # 3. Handle Tool Calls
-                    if response.tool_call:
-                        print("The tool was called")
-                        function_responses = []
-                        for fc in response.tool_call.function_calls:
-                            if fc.name in ["generate_cad", "run_web_agent", "write_file", "read_directory", "read_file", "create_project", "switch_project", "list_projects", "list_smart_devices", "control_light", "discover_printers", "print_stl", "get_print_status", "iterate_cad"]:
-                                prompt = fc.args.get("prompt", "") # Prompt is not present for all tools
-                                
-                                # Check Permissions (Default to True if not set)
-                                confirmation_required = self.permissions.get(fc.name, True)
-                                
-                                if not confirmation_required:
-                                    print(f"[AEGIS DEBUG] [TOOL] Permission check: '{fc.name}' -> AUTO-ALLOW")
-                                    # Skip confirmation block and jump to execution
-                                    pass
-                                else:
-                                    # Confirmation Logic
-                                    if self.on_tool_confirmation:
-                                        import uuid
-                                        request_id = str(uuid.uuid4())
-                                    print(f"[AEGIS DEBUG] [STOP] Requesting confirmation for '{fc.name}' (ID: {request_id})")
-                                    
-                                    future = asyncio.Future()
-                                    self._pending_confirmations[request_id] = future
-                                    
-                                    self.on_tool_confirmation({
-                                        "id": request_id, 
-                                        "tool": fc.name, 
-                                        "args": fc.args
-                                    })
-                                    
-                                    try:
-                                        # Wait for user response
-                                        confirmed = await future
-
-                                    finally:
-                                        self._pending_confirmations.pop(request_id, None)
-
-                                    print(f"[AEGIS DEBUG] [CONFIRM] Request {request_id} resolved. Confirmed: {confirmed}")
-
-                                    if not confirmed:
-                                        print(f"[AEGIS DEBUG] [DENY] Tool call '{fc.name}' denied by user.")
-                                        function_response = types.FunctionResponse(
-                                            id=fc.id,
-                                            name=fc.name,
-                                            response={
-                                                "result": "User denied the request to use this tool.",
-                                            }
-                                        )
-                                        function_responses.append(function_response)
-                                        continue
-
-                                    if not confirmed:
-                                        print(f"[AEGIS DEBUG] [DENY] Tool call '{fc.name}' denied by user.")
-                                        function_response = types.FunctionResponse(
-                                            id=fc.id,
-                                            name=fc.name,
-                                            response={
-                                                "result": "User denied the request to use this tool.",
-                                            }
-                                        )
-                                        function_responses.append(function_response)
-                                        continue
-
-                                # If confirmed (or no callback configured, or auto-allowed), proceed
-                                if fc.name == "generate_cad":
-                                    print(f"\n[AEGIS DEBUG] --------------------------------------------------")
-                                    print(f"[AEGIS DEBUG] [TOOL] Tool Call Detected: 'generate_cad'")
-                                    print(f"[AEGIS DEBUG] [IN] Arguments: prompt='{prompt}'")
-                                    
-                                    asyncio.create_task(self.handle_cad_request(prompt))
-                                    # No function response needed - model already acknowledged when user asked
-                                
-                                elif fc.name == "run_web_agent":
-                                    print(f"[AEGIS DEBUG] [TOOL] Tool Call: 'run_web_agent' with prompt='{prompt}'")
-                                    asyncio.create_task(self.handle_web_agent_request(prompt))
-                                    
-                                    result_text = "Web Navigation started. Do not reply to this message."
-                                    function_response = types.FunctionResponse(
-                                        id=fc.id,
-                                        name=fc.name,
-                                        response={
-                                            "result": result_text,
-                                        }
-                                    )
-                                    print(f"[AEGIS DEBUG] [RESPONSE] Sending function response: {function_response}")
-                                    function_responses.append(function_response)
-
-
-
-                                elif fc.name == "write_file":
-                                    path = fc.args["path"]
-                                    content = fc.args["content"]
-                                    print(f"[AEGIS DEBUG] [TOOL] Tool Call: 'write_file' path='{path}'")
-                                    asyncio.create_task(self.handle_write_file(path, content))
-                                    function_response = types.FunctionResponse(
-                                        id=fc.id, name=fc.name, response={"result": "Writing file..."}
-                                    )
-                                    function_responses.append(function_response)
-
-                                elif fc.name == "read_directory":
-                                    path = fc.args["path"]
-                                    print(f"[AEGIS DEBUG] [TOOL] Tool Call: 'read_directory' path='{path}'")
-                                    asyncio.create_task(self.handle_read_directory(path))
-                                    function_response = types.FunctionResponse(
-                                        id=fc.id, name=fc.name, response={"result": "Reading directory..."}
-                                    )
-                                    function_responses.append(function_response)
-
-                                elif fc.name == "read_file":
-                                    path = fc.args["path"]
-                                    print(f"[AEGIS DEBUG] [TOOL] Tool Call: 'read_file' path='{path}'")
-                                    asyncio.create_task(self.handle_read_file(path))
-                                    function_response = types.FunctionResponse(
-                                        id=fc.id, name=fc.name, response={"result": "Reading file..."}
-                                    )
-                                    function_responses.append(function_response)
-
-                                elif fc.name == "create_project":
-                                    name = fc.args["name"]
-                                    print(f"[AEGIS DEBUG] [TOOL] Tool Call: 'create_project' name='{name}'")
-                                    success, msg = self.project_manager.create_project(name)
-                                    if success:
-                                        # Auto-switch to the newly created project
-                                        self.project_manager.switch_project(name)
-                                        msg += f" Switched to '{name}'."
-                                        if self.on_project_update:
-                                            self.on_project_update(name)
-                                    function_response = types.FunctionResponse(
-                                        id=fc.id, name=fc.name, response={"result": msg}
-                                    )
-                                    function_responses.append(function_response)
-
-                                elif fc.name == "switch_project":
-                                    name = fc.args["name"]
-                                    print(f"[AEGIS DEBUG] [TOOL] Tool Call: 'switch_project' name='{name}'")
-                                    success, msg = self.project_manager.switch_project(name)
-                                    if success:
-                                        if self.on_project_update:
-                                            self.on_project_update(name)
-                                        # Gather project context and send to AI (silently, no response expected)
-                                        context = self.project_manager.get_project_context()
-                                        print(f"[AEGIS DEBUG] [PROJECT] Sending project context to AI ({len(context)} chars)")
-                                        try:
-                                            await self.session.send(input=f"System Notification: {msg}\n\n{context}", end_of_turn=False)
-                                        except Exception as e:
-                                            print(f"[AEGIS DEBUG] [ERR] Failed to send project context: {e}")
-                                    function_response = types.FunctionResponse(
-                                        id=fc.id, name=fc.name, response={"result": msg}
-                                    )
-                                    function_responses.append(function_response)
-                                
-                                elif fc.name == "list_projects":
-                                    print(f"[AEGIS DEBUG] [TOOL] Tool Call: 'list_projects'")
-                                    projects = self.project_manager.list_projects()
-                                    function_response = types.FunctionResponse(
-                                        id=fc.id, name=fc.name, response={"result": f"Available projects: {', '.join(projects)}"}
-                                    )
-                                    function_responses.append(function_response)
-
-                                elif fc.name == "list_smart_devices":
-                                    print(f"[AEGIS DEBUG] [TOOL] Tool Call: 'list_smart_devices'")
-                                    # Use cached devices directly for speed
-                                    # devices_dict is {ip: SmartDevice}
-                                    
-                                    dev_summaries = []
-                                    frontend_list = []
-                                    
-                                    for ip, d in self.kasa_agent.devices.items():
-                                        dev_type = "unknown"
-                                        if d.is_bulb: dev_type = "bulb"
-                                        elif d.is_plug: dev_type = "plug"
-                                        elif d.is_strip: dev_type = "strip"
-                                        elif d.is_dimmer: dev_type = "dimmer"
-                                        
-                                        # Format for Model
-                                        info = f"{d.alias} (IP: {ip}, Type: {dev_type})"
-                                        if d.is_on:
-                                            info += " [ON]"
-                                        else:
-                                            info += " [OFF]"
-                                        dev_summaries.append(info)
-                                        
-                                        # Format for Frontend
-                                        frontend_list.append({
-                                            "ip": ip,
-                                            "alias": d.alias,
-                                            "model": d.model,
-                                            "type": dev_type,
-                                            "is_on": d.is_on,
-                                            "brightness": d.brightness if d.is_bulb or d.is_dimmer else None,
-                                            "hsv": d.hsv if d.is_bulb and d.is_color else None,
-                                            "has_color": d.is_color if d.is_bulb else False,
-                                            "has_brightness": d.is_dimmable if d.is_bulb or d.is_dimmer else False
-                                        })
-                                    
-                                    result_str = "No devices found in cache."
-                                    if dev_summaries:
-                                        result_str = "Found Devices (Cached):\n" + "\n".join(dev_summaries)
-                                    
-                                    # Trigger frontend update
-                                    if self.on_device_update:
-                                        self.on_device_update(frontend_list)
-
-                                    function_response = types.FunctionResponse(
-                                        id=fc.id, name=fc.name, response={"result": result_str}
-                                    )
-                                    function_responses.append(function_response)
-
-                                elif fc.name == "control_light":
-                                    target = fc.args["target"]
-                                    action = fc.args["action"]
-                                    brightness = fc.args.get("brightness")
-                                    color = fc.args.get("color")
-                                    
-                                    print(f"[AEGIS DEBUG] [TOOL] Tool Call: 'control_light' Target='{target}' Action='{action}'")
-                                    
-                                    result_msg = f"Action '{action}' on '{target}' failed."
-                                    success = False
-                                    
-                                    if action == "turn_on":
-                                        success = await self.kasa_agent.turn_on(target)
-                                        if success:
-                                            result_msg = f"Turned ON '{target}'."
-                                    elif action == "turn_off":
-                                        success = await self.kasa_agent.turn_off(target)
-                                        if success:
-                                            result_msg = f"Turned OFF '{target}'."
-                                    elif action == "set":
-                                        success = True
-                                        result_msg = f"Updated '{target}':"
-                                    
-                                    # Apply extra attributes if 'set' or if we just turned it on and want to set them too
-                                    if success or action == "set":
-                                        if brightness is not None:
-                                            sb = await self.kasa_agent.set_brightness(target, brightness)
-                                            if sb:
-                                                result_msg += f" Set brightness to {brightness}."
-                                        if color is not None:
-                                            sc = await self.kasa_agent.set_color(target, color)
-                                            if sc:
-                                                result_msg += f" Set color to {color}."
-
-                                    # Notify Frontend of State Change
-                                    if success:
-                                        # We don't need full discovery, just refresh known state or push update
-                                        # But for simplicity, let's get the standard list representation
-                                        # KasaAgent updates its internal state on control, so we can rebuild the list
-                                        
-                                        # Quick rebuild of list from internal dict
-                                        updated_list = []
-                                        for ip, dev in self.kasa_agent.devices.items():
-                                            # We need to ensure we have the correct dict structure expected by frontend
-                                            # We duplicate logic from KasaAgent.discover_devices a bit, but that's okay for now or we can add a helper
-                                            # Ideally KasaAgent has a 'get_devices_list()' method.
-                                            # Use the cached objects in self.kasa_agent.devices
-                                            
-                                            dev_type = "unknown"
-                                            if dev.is_bulb: dev_type = "bulb"
-                                            elif dev.is_plug: dev_type = "plug"
-                                            elif dev.is_strip: dev_type = "strip"
-                                            elif dev.is_dimmer: dev_type = "dimmer"
-
-                                            d_info = {
-                                                "ip": ip,
-                                                "alias": dev.alias,
-                                                "model": dev.model,
-                                                "type": dev_type,
-                                                "is_on": dev.is_on,
-                                                "brightness": dev.brightness if dev.is_bulb or dev.is_dimmer else None,
-                                                "hsv": dev.hsv if dev.is_bulb and dev.is_color else None,
-                                                "has_color": dev.is_color if dev.is_bulb else False,
-                                                "has_brightness": dev.is_dimmable if dev.is_bulb or dev.is_dimmer else False
-                                            }
-                                            updated_list.append(d_info)
-                                            
-                                        if self.on_device_update:
-                                            self.on_device_update(updated_list)
-                                    else:
-                                        # Report Error
-                                        if self.on_error:
-                                            self.on_error(result_msg)
-
-                                    function_response = types.FunctionResponse(
-                                        id=fc.id, name=fc.name, response={"result": result_msg}
-                                    )
-                                    function_responses.append(function_response)
-
-                                elif fc.name == "discover_printers":
-                                    print(f"[AEGIS DEBUG] [TOOL] Tool Call: 'discover_printers'")
-                                    printers = await self.printer_agent.discover_printers()
-                                    # Format for model
-                                    if printers:
-                                        printer_list = []
-                                        for p in printers:
-                                            printer_list.append(f"{p['name']} ({p['host']}:{p['port']}, type: {p['printer_type']})")
-                                        result_str = "Found Printers:\n" + "\n".join(printer_list)
-                                    else:
-                                        result_str = "No printers found on network. Ensure printers are on and running OctoPrint/Moonraker."
-                                    
-                                    function_response = types.FunctionResponse(
-                                        id=fc.id, name=fc.name, response={"result": result_str}
-                                    )
-                                    function_responses.append(function_response)
-
-                                elif fc.name == "print_stl":
-                                    stl_path = fc.args["stl_path"]
-                                    printer = fc.args["printer"]
-                                    profile = fc.args.get("profile")
-                                    
-                                    print(f"[AEGIS DEBUG] [TOOL] Tool Call: 'print_stl' STL='{stl_path}' Printer='{printer}'")
-                                    
-                                    # Resolve 'current' to project STL
-                                    if stl_path.lower() == "current":
-                                        stl_path = "output.stl" # Let printer agent resolve it in root_path
-
-                                    # Get current project path
-                                    project_path = str(self.project_manager.get_current_project_path())
-                                    
-                                    result = await self.printer_agent.print_stl(
-                                        stl_path, 
-                                        printer, 
-                                        profile, 
-                                        root_path=project_path
-                                    )
-                                    result_str = result.get("message", "Unknown result")
-                                    
-                                    function_response = types.FunctionResponse(
-                                        id=fc.id, name=fc.name, response={"result": result_str}
-                                    )
-                                    function_responses.append(function_response)
-
-                                elif fc.name == "get_print_status":
-                                    printer = fc.args["printer"]
-                                    print(f"[AEGIS DEBUG] [TOOL] Tool Call: 'get_print_status' Printer='{printer}'")
-                                    
-                                    status = await self.printer_agent.get_print_status(printer)
-                                    if status:
-                                        result_str = f"Printer: {status.printer}\n"
-                                        result_str += f"State: {status.state}\n"
-                                        result_str += f"Progress: {status.progress_percent:.1f}%\n"
-                                        if status.time_remaining:
-                                            result_str += f"Time Remaining: {status.time_remaining}\n"
-                                        if status.time_elapsed:
-                                            result_str += f"Time Elapsed: {status.time_elapsed}\n"
-                                        if status.filename:
-                                            result_str += f"File: {status.filename}\n"
-                                        if status.temperatures:
-                                            temps = status.temperatures
-                                            if "hotend" in temps:
-                                                result_str += f"Hotend: {temps['hotend']['current']:.0f}°C / {temps['hotend']['target']:.0f}°C\n"
-                                            if "bed" in temps:
-                                                result_str += f"Bed: {temps['bed']['current']:.0f}°C / {temps['bed']['target']:.0f}°C"
-                                    else:
-                                        result_str = f"Could not get status for printer '{printer}'. Ensure it is discovered first."
-                                    
-                                    function_response = types.FunctionResponse(
-                                        id=fc.id, name=fc.name, response={"result": result_str}
-                                    )
-                                    function_responses.append(function_response)
-
-                                elif fc.name == "iterate_cad":
-                                    prompt = fc.args["prompt"]
-                                    print(f"[AEGIS DEBUG] [TOOL] Tool Call: 'iterate_cad' Prompt='{prompt}'")
-                                    
-                                    # Emit status
-                                    if self.on_cad_status:
-                                        self.on_cad_status("generating")
-                                    
-                                    # Get project cad folder path
-                                    cad_output_dir = str(self.project_manager.get_current_project_path() / "cad")
-                                    
-                                    # Call CadAgent to iterate on the design
-                                    cad_data = await self.cad_agent.iterate_prototype(prompt, output_dir=cad_output_dir)
-                                    
-                                    if cad_data:
-                                        print(f"[AEGIS DEBUG] [OK] CadAgent iteration returned data successfully.")
-                                        
-                                        # Dispatch to frontend
-                                        if self.on_cad_data:
-                                            print(f"[AEGIS DEBUG] [SEND] Dispatching iterated CAD data to frontend...")
-                                            self.on_cad_data(cad_data)
-                                            print(f"[AEGIS DEBUG] [SENT] Dispatch complete.")
-                                        
-                                        # Save to Project
-                                        self.project_manager.save_cad_artifact("output.stl", f"Iteration: {prompt}")
-                                        
-                                        result_str = f"Successfully iterated design: {prompt}. The updated 3D model is now displayed."
-                                    else:
-                                        print(f"[AEGIS DEBUG] [ERR] CadAgent iteration returned None.")
-                                        result_str = f"Failed to iterate design with prompt: {prompt}"
-                                    
-                                    function_response = types.FunctionResponse(
-                                        id=fc.id, name=fc.name, response={"result": result_str}
-                                    )
-                                    function_responses.append(function_response)
-                        if function_responses:
-                            await self.session.send_tool_response(function_responses=function_responses)
-                
-                # Turn/Response Loop Finished
-                self.flush_chat()
-
-                while not self.audio_in_queue.empty():
-                    self.audio_in_queue.get_nowait()
+                    self._push_audio_data(response)
+                    self._process_transcription(response)
+                    await self._process_tool_calls(response)
+                    self._finish_turn()
         except Exception as e:
             print(f"Error in receive_audio: {e}")
             traceback.print_exc()
@@ -1200,6 +1032,17 @@ class AudioLoop:
 
                     # Handle Startup vs Reconnect Logic
                     if not is_reconnect:
+                        # Inject long-term memory context at session start
+                        if self.memory and self.memory.service:
+                            try:
+                                context = await self.memory.recall("Session starting. What do I know about the user?")
+                                if context:
+                                    await self.session.send(
+                                        input=f"System Memory Context (long-term knowledge about the user):\n{context}",
+                                        end_of_turn=False,
+                                    )
+                            except Exception as e:
+                                print(f"[AEGIS DEBUG] [MEMORY] Recall on start failed: {e}")
                         if start_message:
                             print(f"[AEGIS DEBUG] [INFO] Sending start message: {start_message}")
                             await self.session.send(input=start_message, end_of_turn=True)
@@ -1210,6 +1053,17 @@ class AudioLoop:
                     
                     else:
                         print(f"[AEGIS DEBUG] [RECONNECT] Connection restored.")
+                        # Inject long-term memory context on reconnect
+                        if self.memory and self.memory.service:
+                            try:
+                                ctx = await self.memory.recall("Reconnecting. What do I remember about the user?")
+                                if ctx:
+                                    await self.session.send(
+                                        input=f"System Memory Context:\n{ctx}",
+                                        end_of_turn=False,
+                                    )
+                            except Exception as e:
+                                print(f"[AEGIS DEBUG] [MEMORY] Recall on reconnect failed: {e}")
                         # Restore Context
                         print(f"[AEGIS DEBUG] [RECONNECT] Fetching recent chat history to restore context...")
                         history = self.project_manager.get_recent_chat_history(limit=10)
@@ -1258,7 +1112,12 @@ class AudioLoop:
                 is_reconnect = True # Next loop will be a reconnect
                 
             finally:
-                # Cleanup before retry
+                # Cleanup before retry; close long-term memory when user stops
+                if self.stop_event.is_set() and self.memory and self.memory.service:
+                    try:
+                        await self.memory.stop()
+                    except Exception as e:
+                        print(f"[AEGIS DEBUG] [MEMORY] stop failed: {e}")
                 if hasattr(self, 'audio_stream') and self.audio_stream:
                     try:
                         self.audio_stream.close()

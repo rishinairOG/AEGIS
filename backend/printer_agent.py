@@ -839,9 +839,6 @@ class PrinterAgent:
         except Exception as e:
             print(f"[PRINTER] Moonraker upload error: {e}")
             return False
-        except Exception as e:
-            print(f"[PRINTER] Moonraker upload error: {e}")
-            return False
 
     async def get_print_status(self, target: str) -> Optional[PrintStatus]:
         """

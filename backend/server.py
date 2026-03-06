@@ -6,16 +6,20 @@ import asyncio
 if sys.platform == 'win32':
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
+import os
+import json
+import signal
+import asyncio
+from datetime import datetime
+from pathlib import Path
+
 import socketio
 import uvicorn
 from fastapi import FastAPI
-import asyncio
-import threading
-import sys
-import os
-import json
-from datetime import datetime
-from pathlib import Path
+
+from logger import get_logger
+
+logger = get_logger("server")
 
 
 
@@ -25,37 +29,41 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 import aegis
 from authenticator import FaceAuthenticator
 from kasa_agent import KasaAgent
+from memory import AegisMemory
 
 # Create a Socket.IO server
 sio = socketio.AsyncServer(async_mode='asgi', cors_allowed_origins='*')
 app = FastAPI()
 app_socketio = socketio.ASGIApp(sio, app)
 
-import signal
-
 # --- SHUTDOWN HANDLER ---
-def signal_handler(sig, frame):
-    print(f"\n[SERVER] Caught signal {sig}. Exiting gracefully...")
-    # Clean up audio loop
-    if audio_loop:
+def signal_handler(sig: int, frame) -> None:
+    logger.info("Caught signal %s. Exiting gracefully...", sig)
+    if app.audio_loop:
         try:
-            print("[SERVER] Stopping Audio Loop...")
-            audio_loop.stop() 
-        except:
+            app.audio_loop.stop()
+        except Exception:
             pass
-    # Force kill
-    print("[SERVER] Force exiting...")
     os._exit(0)
 
 signal.signal(signal.SIGINT, signal_handler)
 signal.signal(signal.SIGTERM, signal_handler)
 
-# Global state
-audio_loop = None
-loop_task = None
-authenticator = None
-kasa_agent = KasaAgent()
 SETTINGS_FILE = "settings.json"
+
+
+class AppServices:
+    """Container for server-wide state; replaces module-level globals."""
+    def __init__(self):
+        self.settings = None
+        self.kasa_agent = None
+        self.authenticator = None
+        self.memory = None
+        self.audio_loop = None
+        self.loop_task = None
+
+
+app = AppServices()
 
 DEFAULT_SETTINGS = {
     "face_auth_enabled": False, # Default OFF as requested
@@ -71,58 +79,63 @@ DEFAULT_SETTINGS = {
     },
     "printers": [], # List of {host, port, name, type}
     "kasa_devices": [], # List of {ip, alias, model}
-    "camera_flipped": False # Invert cursor horizontal direction
+    "camera_flipped": False, # Invert cursor horizontal direction
+    "memory_enabled": True # HippoMem long-term memory
 }
 
-SETTINGS = DEFAULT_SETTINGS.copy()
+app.settings = DEFAULT_SETTINGS.copy()
+
 
 def load_settings():
-    global SETTINGS
     if os.path.exists(SETTINGS_FILE):
         try:
             with open(SETTINGS_FILE, 'r') as f:
                 loaded = json.load(f)
-                # Merge with defaults to ensure new keys exist
-                # Deep merge for tool_permissions would be better but shallow merge of top keys + tool_permissions check is okay for now
                 for k, v in loaded.items():
                     if k == "tool_permissions" and isinstance(v, dict):
-                         SETTINGS["tool_permissions"].update(v)
+                        app.settings["tool_permissions"].update(v)
                     else:
-                        SETTINGS[k] = v
-            print(f"Loaded settings: {SETTINGS}")
+                        app.settings[k] = v
+            logger.info("Loaded settings: %s", list(app.settings.keys()))
         except Exception as e:
-            print(f"Error loading settings: {e}")
+            logger.exception("Error loading settings")
+
 
 def save_settings():
     try:
         with open(SETTINGS_FILE, 'w') as f:
-            json.dump(SETTINGS, f, indent=4)
-        print("Settings saved.")
+            json.dump(app.settings, f, indent=4)
+        logger.info("Settings saved.")
     except Exception as e:
-        print(f"Error saving settings: {e}")
+        logger.exception("Error saving settings")
+
 
 # Load on startup
 load_settings()
-
-authenticator = None
-kasa_agent = KasaAgent(known_devices=SETTINGS.get("kasa_devices"))
+app.kasa_agent = KasaAgent(known_devices=app.settings.get("kasa_devices"))
 # tool_permissions is now SETTINGS["tool_permissions"]
 
 @app.on_event("startup")
 async def startup_event():
     import sys
-    print(f"[SERVER DEBUG] Startup Event Triggered")
-    print(f"[SERVER DEBUG] Python Version: {sys.version}")
+    logger.debug("Startup event triggered; Python %s", sys.version)
     try:
         loop = asyncio.get_running_loop()
-        print(f"[SERVER DEBUG] Running Loop: {type(loop)}")
-        policy = asyncio.get_event_loop_policy()
-        print(f"[SERVER DEBUG] Current Policy: {type(policy)}")
+        logger.debug("Running loop: %s", type(loop).__name__)
     except Exception as e:
-        print(f"[SERVER DEBUG] Error checking loop: {e}")
+        logger.debug("Loop check: %s", e)
 
-    print("[SERVER] Startup: Initializing Kasa Agent...")
-    await kasa_agent.initialize()
+    logger.info("Startup: Initializing Kasa Agent...")
+    await app.kasa_agent.initialize()
+
+    if app.settings.get("memory_enabled", True):
+        try:
+            app.memory = AegisMemory()
+            await app.memory.start()
+            logger.info("HippoMem long-term memory started.")
+        except Exception as e:
+            logger.warning("Memory startup failed (continuing without): %s", e)
+            app.memory = None
 
 @app.get("/status")
 async def status():
@@ -130,81 +143,62 @@ async def status():
 
 @sio.event
 async def connect(sid, environ):
-    print(f"Client connected: {sid}")
+    logger.info("Client connected: %s", sid)
     await sio.emit('status', {'msg': 'Connected to A.E.G.I.S. Backend'}, room=sid)
 
-    global authenticator
-    
-    # Callback for Auth Status
     async def on_auth_status(is_auth):
-        print(f"[SERVER] Auth status change: {is_auth}")
+        logger.info("Auth status change: %s", is_auth)
         await sio.emit('auth_status', {'authenticated': is_auth})
 
-    # Callback for Auth Camera Frames
     async def on_auth_frame(frame_b64):
         await sio.emit('auth_frame', {'image': frame_b64})
 
-    # Initialize Authenticator if not already done
-    if authenticator is None:
-        authenticator = FaceAuthenticator(
+    if app.authenticator is None:
+        app.authenticator = FaceAuthenticator(
             reference_image_path="reference.jpg",
             on_status_change=on_auth_status,
             on_frame=on_auth_frame
         )
-    
-    # Check if already authenticated or needs to start
-    if authenticator.authenticated:
+
+    if app.authenticator.authenticated:
         await sio.emit('auth_status', {'authenticated': True})
     else:
-        # Check Settings for Auth
-        if SETTINGS.get("face_auth_enabled", False):
+        if app.settings.get("face_auth_enabled", False):
             await sio.emit('auth_status', {'authenticated': False})
-            # Start the auth loop in background
-            asyncio.create_task(authenticator.start_authentication_loop())
+            asyncio.create_task(app.authenticator.start_authentication_loop())
         else:
-            # Bypass Auth
-            print("Face Auth Disabled. Auto-authenticating.")
-            # We don't change authenticator state to true to avoid confusion if re-enabled? 
-            # Or we should just tell client it's auth'd.
+            logger.info("Face auth disabled; auto-authenticating.")
             await sio.emit('auth_status', {'authenticated': True})
 
 @sio.event
 async def disconnect(sid):
-    print(f"Client disconnected: {sid}")
+    logger.info("Client disconnected: %s", sid)
 
 @sio.event
 async def start_audio(sid, data=None):
-    global audio_loop, loop_task
-    
-    # Optional: Block if not authenticated
-    # Only block if auth is ENABLED and not authenticated
-    if SETTINGS.get("face_auth_enabled", False):
-        if authenticator and not authenticator.authenticated:
-            print("Blocked start_audio: Not authenticated.")
+    if app.settings.get("face_auth_enabled", False):
+        if app.authenticator and not app.authenticator.authenticated:
+            logger.warning("Blocked start_audio: not authenticated.")
             await sio.emit('error', {'msg': 'Authentication Required'})
             return
 
-    print("Starting Audio Loop...")
-    
+    logger.info("Starting Audio Loop...")
     device_index = None
     device_name = None
     if data:
-        if 'device_index' in data:
-            device_index = data['device_index']
-        if 'device_name' in data:
-            device_name = data['device_name']
-            
-    print(f"Using input device: Name='{device_name}', Index={device_index}")
-    
-    if audio_loop:
-        if loop_task and (loop_task.done() or loop_task.cancelled()):
-             print("Audio loop task appeared finished/cancelled. Clearing and restarting...")
-             audio_loop = None
-             loop_task = None
+        device_index = data.get('device_index')
+        device_name = data.get('device_name')
+    logger.info("Input device: name=%s index=%s", device_name, device_index)
+
+    if app.audio_loop:
+        if app.loop_task and (app.loop_task.done() or app.loop_task.cancelled()):
+            logger.info("Audio loop task finished/cancelled; clearing and restarting.")
+            app.audio_loop = None
+            app.loop_task = None
         else:
-             print("Audio loop already running. Re-connecting client to session.")
-             await sio.emit('status', {'msg': 'A.E.G.I.S. Already Running'})
-             return
+            logger.info("Audio loop already running; re-connecting client.")
+            await sio.emit('status', {'msg': 'A.E.G.I.S. Already Running'})
+            return
 
 
     # Callback to send audio data to frontend
@@ -216,12 +210,12 @@ async def start_audio(sid, data=None):
     # Callback to send CAL data to frontend
     def on_cad_data(data):
         info = f"{len(data.get('vertices', []))} vertices" if 'vertices' in data else f"{len(data.get('data', ''))} bytes (STL)"
-        print(f"Sending CAD data to frontend: {info}")
+        logger.debug("Sending CAD data to frontend: %s", info)
         asyncio.create_task(sio.emit('cad_data', data))
 
     # Callback to send Browser data to frontend
     def on_web_data(data):
-        print(f"Sending Browser data to frontend: {len(data.get('log', ''))} chars logs")
+        logger.debug("Sending browser data to frontend: %d chars log", len(data.get('log', '')))
         asyncio.create_task(sio.emit('browser_frame', data))
         
     # Callback to send Transcription data to frontend
@@ -232,7 +226,7 @@ async def start_audio(sid, data=None):
     # Callback to send Confirmation Request to frontend
     def on_tool_confirmation(data):
         # data = {"id": "uuid", "tool": "tool_name", "args": {...}}
-        print(f"Requesting confirmation for tool: {data.get('tool')}")
+        logger.info("Requesting confirmation for tool: %s", data.get('tool'))
         asyncio.create_task(sio.emit('tool_confirmation_request', data))
 
     # Callback to send CAD status to frontend
@@ -241,11 +235,11 @@ async def start_audio(sid, data=None):
         # - a string like "generating" (from ada.py handle_cad_request)
         # - a dict with {status, attempt, max_attempts, error} (from CadAgent)
         if isinstance(status, dict):
-            print(f"Sending CAD Status: {status.get('status')} (attempt {status.get('attempt')}/{status.get('max_attempts')})")
+            logger.debug("CAD status: %s (attempt %s/%s)", status.get('status'), status.get('attempt'), status.get('max_attempts'))
             asyncio.create_task(sio.emit('cad_status', status))
         else:
             # Legacy: simple string
-            print(f"Sending CAD Status: {status}")
+            logger.debug("CAD status: %s", status)
             asyncio.create_task(sio.emit('cad_status', {'status': status}))
 
     # Callback to send CAD thoughts to frontend (streaming)
@@ -254,24 +248,24 @@ async def start_audio(sid, data=None):
 
     # Callback to send Project Update to frontend
     def on_project_update(project_name):
-        print(f"Sending Project Update: {project_name}")
+        logger.info("Project update: %s", project_name)
         asyncio.create_task(sio.emit('project_update', {'project': project_name}))
 
     # Callback to send Device Update to frontend
     def on_device_update(devices):
         # devices is a list of dicts
-        print(f"Sending Kasa Device Update: {len(devices)} devices")
+        logger.info("Kasa device update: %d devices", len(devices))
         asyncio.create_task(sio.emit('kasa_devices', devices))
 
     # Callback to send Error to frontend
     def on_error(msg):
-        print(f"Sending Error to frontend: {msg}")
+        logger.warning("Sending error to frontend: %s", msg)
         asyncio.create_task(sio.emit('error', {'msg': msg}))
 
     try:
-        print(f"Initializing AudioLoop with device_index={device_index}")
-        audio_loop = aegis.AudioLoop(
-            video_mode="none", 
+        logger.info("Initializing AudioLoop with device_index=%s", device_index)
+        app.audio_loop = aegis.AudioLoop(
+            video_mode="none",
             on_audio_data=on_audio_data,
             on_cad_data=on_cad_data,
             on_web_data=on_web_data,
@@ -282,45 +276,37 @@ async def start_audio(sid, data=None):
             on_project_update=on_project_update,
             on_device_update=on_device_update,
             on_error=on_error,
-
             input_device_index=device_index,
             input_device_name=device_name,
-            kasa_agent=kasa_agent
+            kasa_agent=app.kasa_agent,
+            memory=app.memory
         )
-        print("AudioLoop initialized successfully.")
-
-        # Apply current permissions
-        audio_loop.update_permissions(SETTINGS["tool_permissions"])
-        
-        # Check initial mute state
+        logger.info("AudioLoop initialized successfully.")
+        app.audio_loop.update_permissions(app.settings["tool_permissions"])
         if data and data.get('muted', False):
-            print("Starting with Audio Paused")
-            audio_loop.set_paused(True)
-
-        print("Creating asyncio task for AudioLoop.run()")
-        loop_task = asyncio.create_task(audio_loop.run())
+            logger.info("Starting with audio paused")
+            app.audio_loop.set_paused(True)
+        logger.debug("Creating asyncio task for AudioLoop.run()")
+        app.loop_task = asyncio.create_task(app.audio_loop.run())
         
         # Add a done callback to catch silent failures in the loop
         def handle_loop_exit(task):
             try:
                 task.result()
             except asyncio.CancelledError:
-                print("Audio Loop Cancelled")
+                logger.info("Audio loop cancelled")
             except Exception as e:
-                print(f"Audio Loop Crashed: {e}")
+                logger.exception("Audio loop crashed")
                 # You could emit 'error' here if you have context
         
-        loop_task.add_done_callback(handle_loop_exit)
-        
-        print("Emitting 'A.E.G.I.S. Started'")
+        app.loop_task.add_done_callback(handle_loop_exit)
+        logger.info("A.E.G.I.S. started")
         await sio.emit('status', {'msg': 'A.E.G.I.S. Started'})
-
-        # Load saved printers
-        saved_printers = SETTINGS.get("printers", [])
-        if saved_printers and audio_loop.printer_agent:
-            print(f"[SERVER] Loading {len(saved_printers)} saved printers...")
+        saved_printers = app.settings.get("printers", [])
+        if saved_printers and app.audio_loop.printer_agent:
+            logger.info("Loading %d saved printers", len(saved_printers))
             for p in saved_printers:
-                audio_loop.printer_agent.add_printer_manually(
+                app.audio_loop.printer_agent.add_printer_manually(
                     name=p.get("name", p["host"]),
                     host=p["host"],
                     port=p.get("port", 80),
@@ -332,19 +318,16 @@ async def start_audio(sid, data=None):
         asyncio.create_task(monitor_printers_loop())
         
     except Exception as e:
-        print(f"CRITICAL ERROR STARTING ADA: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.exception("Critical error starting audio loop")
         await sio.emit('error', {'msg': f"Failed to start: {str(e)}"})
-        audio_loop = None # Ensure we can try again
-
+        app.audio_loop = None
 
 async def monitor_printers_loop():
     """Background task to query printer status periodically."""
-    print("[SERVER] Starting Printer Monitor Loop")
-    while audio_loop and audio_loop.printer_agent:
+    logger.info("Starting printer monitor loop")
+    while app.audio_loop and app.audio_loop.printer_agent:
         try:
-            agent = audio_loop.printer_agent
+            agent = app.audio_loop.printer_agent
             if not agent.printers:
                 await asyncio.sleep(5)
                 continue
@@ -364,136 +347,112 @@ async def monitor_printers_loop():
                         await sio.emit('print_status_update', res.to_dict())
                         
         except asyncio.CancelledError:
-            print("[SERVER] Printer Monitor Cancelled")
+            logger.info("Printer monitor cancelled")
             break
         except Exception as e:
-            print(f"[SERVER] Monitor Loop Error: {e}")
+            logger.warning("Monitor loop error: %s", e)
             
         await asyncio.sleep(2) # Update every 2 seconds for responsiveness
 
 @sio.event
 async def stop_audio(sid):
-    global audio_loop
-    if audio_loop:
-        audio_loop.stop() 
-        print("Stopping Audio Loop")
-        audio_loop = None
+    if app.audio_loop:
+        app.audio_loop.stop()
+        logger.info("Stopping Audio Loop")
+        app.audio_loop = None
         await sio.emit('status', {'msg': 'A.E.G.I.S. Stopped'})
 
 @sio.event
 async def pause_audio(sid):
-    global audio_loop
-    if audio_loop:
-        audio_loop.set_paused(True)
-        print("Pausing Audio")
+    if app.audio_loop:
+        app.audio_loop.set_paused(True)
+        logger.info("Pausing audio")
         await sio.emit('status', {'msg': 'Audio Paused'})
 
 @sio.event
 async def resume_audio(sid):
-    global audio_loop
-    if audio_loop:
-        audio_loop.set_paused(False)
-        print("Resuming Audio")
+    if app.audio_loop:
+        app.audio_loop.set_paused(False)
+        logger.info("Resuming audio")
         await sio.emit('status', {'msg': 'Audio Resumed'})
 
 @sio.event
 async def confirm_tool(sid, data):
-    # data: { "id": "...", "confirmed": True/False }
     request_id = data.get('id')
     confirmed = data.get('confirmed', False)
-    
-    print(f"[SERVER DEBUG] Received confirmation response for {request_id}: {confirmed}")
-    
-    if audio_loop:
-        audio_loop.resolve_tool_confirmation(request_id, confirmed)
+    logger.debug("Confirm tool %s: %s", request_id, confirmed)
+    if app.audio_loop:
+        app.audio_loop.resolve_tool_confirmation(request_id, confirmed)
     else:
-        print("Audio loop not active, cannot resolve confirmation.")
+        logger.warning("Audio loop not active; cannot resolve confirmation.")
 
 @sio.event
 async def shutdown(sid, data=None):
     """Gracefully shutdown the server when the application closes."""
-    global audio_loop, loop_task, authenticator
-    
-    print("[SERVER] ========================================")
-    print("[SERVER] SHUTDOWN SIGNAL RECEIVED FROM FRONTEND")
-    print("[SERVER] ========================================")
-    
-    # Stop audio loop
-    if audio_loop:
-        print("[SERVER] Stopping Audio Loop...")
-        audio_loop.stop()
-        audio_loop = None
-    
-    # Cancel the loop task if running
-    if loop_task and not loop_task.done():
-        print("[SERVER] Cancelling loop task...")
-        loop_task.cancel()
-        loop_task = None
-    
-    # Stop authenticator if running
-    if authenticator:
-        print("[SERVER] Stopping Authenticator...")
-        authenticator.stop()
-    
-    print("[SERVER] Graceful shutdown complete. Terminating process...")
-    
-    # Force exit immediately - os._exit bypasses cleanup but ensures termination
+    logger.info("Shutdown signal received from frontend")
+    if app.audio_loop:
+        logger.info("Stopping Audio Loop...")
+        app.audio_loop.stop()
+        app.audio_loop = None
+    if app.loop_task and not app.loop_task.done():
+        logger.info("Cancelling loop task...")
+        app.loop_task.cancel()
+        app.loop_task = None
+    if app.authenticator:
+        logger.info("Stopping Authenticator...")
+        app.authenticator.stop()
+    logger.info("Graceful shutdown complete. Terminating process...")
     os._exit(0)
 
 @sio.event
 async def user_input(sid, data):
     text = data.get('text')
-    print(f"[SERVER DEBUG] User input received: '{text}'")
-    
-    if not audio_loop:
-        print("[SERVER DEBUG] [Error] Audio loop is None. Cannot send text.")
+    logger.debug("User input received: %s", text[:80] if text else "")
+    if not app.audio_loop:
+        logger.warning("Audio loop is None; cannot send text.")
         return
-
-    if not audio_loop.session:
-        print("[SERVER DEBUG] [Error] Session is None. Cannot send text.")
+    if not app.audio_loop.session:
+        logger.warning("Session is None; cannot send text.")
         return
-
     if text:
-        print(f"[SERVER DEBUG] Sending message to model: '{text}'")
-        
-        # Log User Input to Project History
-        if audio_loop and audio_loop.project_manager:
-            audio_loop.project_manager.log_chat("User", text)
-            
-        # Use the same 'send' method that worked for audio, as 'send_realtime_input' and 'send_client_content' seem unstable in this env
+        logger.debug("Sending message to model")
+        if app.audio_loop and app.audio_loop.project_manager:
+            app.audio_loop.project_manager.log_chat("User", text)
+        if app.audio_loop.memory and app.audio_loop.memory.service:
+            try:
+                context = await app.audio_loop.memory.recall(text)
+                if context:
+                    await app.audio_loop.session.send(
+                        input=f"[Memory Context]: {context}",
+                        end_of_turn=False,
+                    )
+            except Exception as e:
+                logger.warning("Memory recall failed: %s", e)
         # INJECT VIDEO FRAME IF AVAILABLE (VAD-style logic for Text Input)
-        if audio_loop and audio_loop._latest_image_payload:
-            print(f"[SERVER DEBUG] Piggybacking video frame with text input.")
+        if app.audio_loop and app.audio_loop._latest_image_payload:
+            logger.debug("Piggybacking video frame with text input.")
             try:
                 # Send frame first
-                await audio_loop.session.send(input=audio_loop._latest_image_payload, end_of_turn=False)
+                await app.audio_loop.session.send(input=app.audio_loop._latest_image_payload, end_of_turn=False)
             except Exception as e:
-                print(f"[SERVER DEBUG] Failed to send piggyback frame: {e}")
+                logger.warning("Failed to send piggyback frame: %s", e)
                 
-        await audio_loop.session.send(input=text, end_of_turn=True)
-        print(f"[SERVER DEBUG] Message sent to model successfully.")
-
-import json
-from datetime import datetime
-from pathlib import Path
-
-# ... (imports)
+        await app.audio_loop.session.send(input=text, end_of_turn=True)
+        logger.debug("Message sent to model successfully.")
 
 @sio.event
 async def video_frame(sid, data):
     # data should contain 'image' which is binary (blob) or base64 encoded
     image_data = data.get('image')
-    if image_data and audio_loop:
-        # We don't await this because we don't want to block the socket handler
-        # But send_frame is async, so we create a task
-        asyncio.create_task(audio_loop.send_frame(image_data))
+    if image_data and app.audio_loop:
+        asyncio.create_task(app.audio_loop.send_frame(image_data))
 
 @sio.event
 async def save_memory(sid, data):
     try:
         messages = data.get('messages', [])
         if not messages:
-            print("No messages to save.")
+            logger.debug("No messages to save.")
             return
 
         # Ensure directory exists
@@ -519,49 +478,46 @@ async def save_memory(sid, data):
             for msg in messages:
                 sender = msg.get('sender', 'Unknown')
                 text = msg.get('text', '')
-        print(f"Conversation saved to {filename}")
+                f.write(f"[{sender}]: {text}\n")
+        logger.info("Conversation saved to %s", filename)
         await sio.emit('status', {'msg': 'Memory Saved Successfully'})
 
     except Exception as e:
-        print(f"Error saving memory: {e}")
+        logger.exception("Error saving memory")
         await sio.emit('error', {'msg': f"Failed to save memory: {str(e)}"})
 
 @sio.event
 async def upload_memory(sid, data):
-    print(f"Received memory upload request")
+    logger.info("Received memory upload request")
     try:
         memory_text = data.get('memory', '')
         if not memory_text:
-            print("No memory data provided.")
+            logger.debug("No memory data provided.")
             return
 
-        if not audio_loop:
-             print("[SERVER DEBUG] [Error] Audio loop is None. Cannot load memory.")
-             await sio.emit('error', {'msg': "System not ready (Audio Loop inactive)"})
-             return
-        
-        if not audio_loop.session:
-             print("[SERVER DEBUG] [Error] Session is None. Cannot load memory.")
-             await sio.emit('error', {'msg': "System not ready (No active session)"})
-             return
-
-        # Send to model
-        print("Sending memory context to model...")
+        if not app.audio_loop:
+            logger.warning("Audio loop is None; cannot load memory.")
+            await sio.emit('error', {'msg': "System not ready (Audio Loop inactive)"})
+            return
+        if not app.audio_loop.session:
+            logger.warning("Session is None; cannot load memory.")
+            await sio.emit('error', {'msg': "System not ready (No active session)"})
+            return
+        logger.info("Sending memory context to model...")
         context_msg = f"System Notification: The user has uploaded a long-term memory file. Please load the following context into your understanding. The format is a text log of previous conversations:\n\n{memory_text}"
-        
-        await audio_loop.session.send(input=context_msg, end_of_turn=True)
-        print("Memory context sent successfully.")
+        await app.audio_loop.session.send(input=context_msg, end_of_turn=True)
+        logger.info("Memory context sent successfully.")
         await sio.emit('status', {'msg': 'Memory Loaded into Context'})
 
     except Exception as e:
-        print(f"Error uploading memory: {e}")
+        logger.exception("Error uploading memory")
         await sio.emit('error', {'msg': f"Failed to upload memory: {str(e)}"})
 
 @sio.event
 async def discover_kasa(sid):
-    print(f"Received discover_kasa request")
+    logger.info("Received discover_kasa request")
     try:
-        devices = await kasa_agent.discover_devices()
+        devices = await app.kasa_agent.discover_devices()
         await sio.emit('kasa_devices', devices)
         await sio.emit('status', {'msg': f"Found {len(devices)} Kasa devices"})
         
@@ -579,21 +535,21 @@ async def discover_kasa(sid):
         # For now, just overwrite with latest scan result + previously known if we want to be fancy,
         # but user asked for "Any new devices that are scanned are added there".
         # A simple full persistence of current state is safest.
-        SETTINGS["kasa_devices"] = saved_devices
+        app.settings["kasa_devices"] = saved_devices
         save_settings()
-        print(f"[SERVER] Saved {len(saved_devices)} Kasa devices to settings.")
+        logger.info("Saved %d Kasa devices to settings", len(saved_devices))
         
     except Exception as e:
-        print(f"Error discovering kasa: {e}")
+        logger.exception("Error discovering kasa")
         await sio.emit('error', {'msg': f"Kasa Discovery Failed: {str(e)}"})
 
 @sio.event
 async def iterate_cad(sid, data):
     # data: { prompt: "make it bigger" }
     prompt = data.get('prompt')
-    print(f"Received iterate_cad request: '{prompt}'")
+    logger.info("Received iterate_cad request: %s", (prompt or "")[:80])
     
-    if not audio_loop or not audio_loop.cad_agent:
+    if not app.audio_loop or not app.audio_loop.cad_agent:
         await sio.emit('error', {'msg': "CAD Agent not available"})
         return
 
@@ -603,34 +559,34 @@ async def iterate_cad(sid, data):
         await sio.emit('cad_status', {'status': 'generating'})
         
         # Call the agent with project path
-        cad_output_dir = str(audio_loop.project_manager.get_current_project_path() / "cad")
-        result = await audio_loop.cad_agent.iterate_prototype(prompt, output_dir=cad_output_dir)
+        cad_output_dir = str(app.audio_loop.project_manager.get_current_project_path() / "cad")
+        result = await app.audio_loop.cad_agent.iterate_prototype(prompt, output_dir=cad_output_dir)
         
         if result:
             info = f"{len(result.get('data', ''))} bytes (STL)"
-            print(f"Sending updated CAD data: {info}")
+            logger.debug("Sending updated CAD data: %s", info)
             await sio.emit('cad_data', result)
             # Save to Project
             if 'file_path' in result:
-                saved_path = audio_loop.project_manager.save_cad_artifact(result['file_path'], prompt)
+                saved_path = app.audio_loop.project_manager.save_cad_artifact(result['file_path'], prompt)
                 if saved_path:
-                    print(f"[SERVER] Saved iterated CAD to {saved_path}")
+                    logger.info("Saved iterated CAD to %s", saved_path)
 
             await sio.emit('status', {'msg': 'Design updated'})
         else:
             await sio.emit('error', {'msg': 'Failed to update design'})
             
     except Exception as e:
-        print(f"Error iterating CAD: {e}")
+        logger.exception("Error iterating CAD")
         await sio.emit('error', {'msg': f"Iteration Error: {str(e)}"})
 
 @sio.event
 async def generate_cad(sid, data):
     # data: { prompt: "make a cube" }
     prompt = data.get('prompt')
-    print(f"Received generate_cad request: '{prompt}'")
+    logger.info("Received generate_cad request: %s", (prompt or "")[:80])
     
-    if not audio_loop or not audio_loop.cad_agent:
+    if not app.audio_loop or not app.audio_loop.cad_agent:
         await sio.emit('error', {'msg': "CAD Agent not available"})
         return
 
@@ -639,36 +595,36 @@ async def generate_cad(sid, data):
         await sio.emit('cad_status', {'status': 'generating'})
         
         # Use generate_prototype based on prompt with project path
-        cad_output_dir = str(audio_loop.project_manager.get_current_project_path() / "cad")
-        result = await audio_loop.cad_agent.generate_prototype(prompt, output_dir=cad_output_dir)
+        cad_output_dir = str(app.audio_loop.project_manager.get_current_project_path() / "cad")
+        result = await app.audio_loop.cad_agent.generate_prototype(prompt, output_dir=cad_output_dir)
         
         if result:
             info = f"{len(result.get('data', ''))} bytes (STL)"
-            print(f"Sending newly generated CAD data: {info}")
+            logger.debug("Sending newly generated CAD data: %s", info)
             await sio.emit('cad_data', result)
 
 
             # Save to Project
             if 'file_path' in result:
-                saved_path = audio_loop.project_manager.save_cad_artifact(result['file_path'], prompt)
+                saved_path = app.audio_loop.project_manager.save_cad_artifact(result['file_path'], prompt)
                 if saved_path:
-                    print(f"[SERVER] Saved generated CAD to {saved_path}")
+                    logger.info("Saved generated CAD to %s", saved_path)
 
             await sio.emit('status', {'msg': 'Design generated'})
         else:
             await sio.emit('error', {'msg': 'Failed to generate design'})
             
     except Exception as e:
-        print(f"Error generating CAD: {e}")
+        logger.exception("Error generating CAD")
         await sio.emit('error', {'msg': f"Generation Error: {str(e)}"})
 
 @sio.event
 async def prompt_web_agent(sid, data):
     # data: { prompt: "find xyz" }
     prompt = data.get('prompt')
-    print(f"Received web agent prompt: '{prompt}'")
+    logger.info("Received web agent prompt: %s", (prompt or "")[:80])
     
-    if not audio_loop or not audio_loop.web_agent:
+    if not app.audio_loop or not app.audio_loop.web_agent:
         await sio.emit('error', {'msg': "Web Agent not available"})
         return
 
@@ -685,21 +641,20 @@ async def prompt_web_agent(sid, data):
         # But we want to catch errors here.
         
         # Based on typical agent design, run() is the entry point.
-        await audio_loop.web_agent.run(prompt)
+        await app.audio_loop.web_agent.run(prompt)
         
         await sio.emit('status', {'msg': 'Web Agent finished'})
         
     except Exception as e:
-        print(f"Error running Web Agent: {e}")
+        logger.exception("Error running Web Agent")
         await sio.emit('error', {'msg': f"Web Agent Error: {str(e)}"})
 
 @sio.event
 async def discover_printers(sid):
-    print("Received discover_printers request")
+    logger.info("Received discover_printers request")
     
-    # If audio_loop isn't ready yet, return saved printers from settings
-    if not audio_loop or not audio_loop.printer_agent:
-        saved_printers = SETTINGS.get("printers", [])
+    if not app.audio_loop or not app.audio_loop.printer_agent:
+        saved_printers = app.settings.get("printers", [])
         if saved_printers:
             # Convert saved printers to the expected format
             printer_list = []
@@ -711,7 +666,7 @@ async def discover_printers(sid):
                     "printer_type": p.get("type", "unknown"),
                     "camera_url": p.get("camera_url")
                 })
-            print(f"[SERVER] Returning {len(printer_list)} saved printers (audio_loop not ready)")
+            logger.info("Returning %d saved printers (audio_loop not ready)", len(printer_list))
             await sio.emit('printer_list', printer_list)
             return
         else:
@@ -720,11 +675,11 @@ async def discover_printers(sid):
             return
         
     try:
-        printers = await audio_loop.printer_agent.discover_printers()
+        printers = await app.audio_loop.printer_agent.discover_printers()
         await sio.emit('printer_list', printers)
         await sio.emit('status', {'msg': f"Found {len(printers)} printers"})
     except Exception as e:
-        print(f"Error discovering printers: {e}")
+        logger.exception("Error discovering printers")
         await sio.emit('error', {'msg': f"Printer Discovery Failed: {str(e)}"})
 
 @sio.event
@@ -742,16 +697,16 @@ async def add_printer(sid, data):
         host = raw_host
         port = 80
     
-    print(f"Received add_printer request: {host}:{port} ({ptype})")
+    logger.info("Received add_printer: %s:%s (%s)", host, port, ptype)
     
-    if not audio_loop or not audio_loop.printer_agent:
+    if not app.audio_loop or not app.audio_loop.printer_agent:
         await sio.emit('error', {'msg': "Printer Agent not available"})
         return
         
     try:
         # Add manually
         camera_url = data.get('camera_url')
-        printer = audio_loop.printer_agent.add_printer_manually(name, host, port=port, printer_type=ptype, camera_url=camera_url)
+        printer = app.audio_loop.printer_agent.add_printer_manually(name, host, port=port, printer_type=ptype, camera_url=camera_url)
         
         # Save to settings
         new_printer_config = {
@@ -764,26 +719,26 @@ async def add_printer(sid, data):
         
         # Check if already exists to avoid duplicates
         exists = False
-        for p in SETTINGS.get("printers", []):
+        for p in app.settings.get("printers", []):
             if p["host"] == host and p["port"] == port:
                 exists = True
                 break
         
         if not exists:
-            if "printers" not in SETTINGS:
-                SETTINGS["printers"] = []
-            SETTINGS["printers"].append(new_printer_config)
+            if "printers" not in app.settings:
+                app.settings["printers"] = []
+            app.settings["printers"].append(new_printer_config)
             save_settings()
-            print(f"[SERVER] Saved printer {name} to settings.")
+            logger.info("Saved printer %s to settings", name)
         
         # Probe to confirm/correct type
-        print(f"Probing {host} to confirm type...")
+        logger.info("Probing %s to confirm type", host)
         # Try port 7125 (Moonraker) and 4408 (Fluidd/K1) 
         ports_to_try = [80, 7125, 4408]
         
         actual_type = "unknown"
         for port in ports_to_try:
-             found_type = await audio_loop.printer_agent._probe_printer_type(host, port)
+             found_type = await app.audio_loop.printer_agent._probe_printer_type(host, port)
              if found_type.value != "unknown":
                  actual_type = found_type
                  # Update port if different
@@ -793,23 +748,23 @@ async def add_printer(sid, data):
         
         if actual_type != "unknown" and actual_type != printer.printer_type:
              printer.printer_type = actual_type
-             print(f"Corrected type to {actual_type.value} on port {printer.port}")
+             logger.info("Corrected type to %s on port %s", actual_type.value, printer.port)
              
         # Refresh list for everyone
-        printers = [p.to_dict() for p in audio_loop.printer_agent.printers.values()]
+        printers = [p.to_dict() for p in app.audio_loop.printer_agent.printers.values()]
         await sio.emit('printer_list', printers)
         await sio.emit('status', {'msg': f"Added printer: {name}"})
         
     except Exception as e:
-        print(f"Error adding printer: {e}")
+        logger.exception("Error adding printer")
         await sio.emit('error', {'msg': f"Failed to add printer: {str(e)}"})
 
 @sio.event
 async def print_stl(sid, data):
-    print(f"Received print_stl request: {data}")
+    logger.info("Received print_stl request: %s", list(data.keys()) if data else [])
     # data: { stl_path: "path/to.stl" | "current", printer: "name_or_ip", profile: "optional" }
     
-    if not audio_loop or not audio_loop.printer_agent:
+    if not app.audio_loop or not app.audio_loop.printer_agent:
         await sio.emit('error', {'msg': "Printer Agent not available"})
         return
         
@@ -826,12 +781,12 @@ async def print_stl(sid, data):
         
         # Get current project path for resolution
         current_project_path = None
-        if audio_loop and audio_loop.project_manager:
-            current_project_path = str(audio_loop.project_manager.get_current_project_path())
-            print(f"[SERVER DEBUG] Using project path: {current_project_path}")
+        if app.audio_loop and app.audio_loop.project_manager:
+            current_project_path = str(app.audio_loop.project_manager.get_current_project_path())
+            logger.debug("Using project path: %s", current_project_path)
 
         # Resolve STL path before slicing so we can preview it
-        resolved_stl = audio_loop.printer_agent._resolve_file_path(stl_path, current_project_path)
+        resolved_stl = app.audio_loop.printer_agent._resolve_file_path(stl_path, current_project_path)
         
         if resolved_stl and os.path.exists(resolved_stl):
             # Open the STL in the CAD module for preview
@@ -842,14 +797,14 @@ async def print_stl(sid, data):
                 stl_b64 = base64.b64encode(stl_data).decode('utf-8')
                 stl_filename = os.path.basename(resolved_stl)
                 
-                print(f"[SERVER] Opening STL in CAD module: {stl_filename}")
+                logger.info("Opening STL in CAD module: %s", stl_filename)
                 await sio.emit('cad_data', {
                     'format': 'stl',
                     'data': stl_b64,
                     'filename': stl_filename
                 })
             except Exception as e:
-                print(f"[SERVER] Warning: Could not preview STL: {e}")
+                logger.warning("Could not preview STL: %s", e)
         
         # Progress Callback
         async def on_slicing_progress(percent, message):
@@ -861,7 +816,7 @@ async def print_stl(sid, data):
             if percent < 100:
                  await sio.emit('status', {'msg': f"Slicing: {percent}%"})
 
-        result = await audio_loop.printer_agent.print_stl(
+        result = await app.audio_loop.printer_agent.print_stl(
             stl_path, 
             printer_name, 
             profile,
@@ -873,22 +828,22 @@ async def print_stl(sid, data):
         await sio.emit('status', {'msg': f"Print Job: {result.get('status', 'unknown')}"})
         
     except Exception as e:
-        print(f"Error printing STL: {e}")
+        logger.exception("Error printing STL")
         await sio.emit('error', {'msg': f"Print Failed: {str(e)}"})
 
 @sio.event
 async def get_slicer_profiles(sid):
     """Get available OrcaSlicer profiles for manual selection."""
-    print("Received get_slicer_profiles request")
-    if not audio_loop or not audio_loop.printer_agent:
+    logger.info("Received get_slicer_profiles request")
+    if not app.audio_loop or not app.audio_loop.printer_agent:
         await sio.emit('error', {'msg': "Printer Agent not available"})
         return
     
     try:
-        profiles = audio_loop.printer_agent.get_available_profiles()
+        profiles = app.audio_loop.printer_agent.get_available_profiles()
         await sio.emit('slicer_profiles', profiles)
     except Exception as e:
-        print(f"Error getting slicer profiles: {e}")
+        logger.exception("Error getting slicer profiles")
         await sio.emit('error', {'msg': f"Failed to get profiles: {str(e)}"})
 
 @sio.event
@@ -896,23 +851,23 @@ async def control_kasa(sid, data):
     # data: { ip, action: "on"|"off"|"brightness"|"color", value: ... }
     ip = data.get('ip')
     action = data.get('action')
-    print(f"Kasa Control: {ip} -> {action}")
+    logger.info("Kasa control: %s -> %s", ip, action)
     
     try:
         success = False
         if action == "on":
-            success = await kasa_agent.turn_on(ip)
+            success = await app.kasa_agent.turn_on(ip)
         elif action == "off":
-            success = await kasa_agent.turn_off(ip)
+            success = await app.kasa_agent.turn_off(ip)
         elif action == "brightness":
             val = data.get('value')
-            success = await kasa_agent.set_brightness(ip, val)
+            success = await app.kasa_agent.set_brightness(ip, val)
         elif action == "color":
             # value is {h, s, v} - convert to tuple for set_color
             h = data.get('value', {}).get('h', 0)
             s = data.get('value', {}).get('s', 100)
             v = data.get('value', {}).get('v', 100)
-            success = await kasa_agent.set_color(ip, (h, s, v))
+            success = await app.kasa_agent.set_color(ip, (h, s, v))
         
         if success:
             await sio.emit('kasa_update', {
@@ -925,26 +880,26 @@ async def control_kasa(sid, data):
              await sio.emit('error', {'msg': f"Failed to control device {ip}"})
 
     except Exception as e:
-         print(f"Error controlling kasa: {e}")
+         logger.exception("Error controlling kasa")
          await sio.emit('error', {'msg': f"Kasa Control Error: {str(e)}"})
 
 @sio.event
 async def get_settings(sid):
-    await sio.emit('settings', SETTINGS)
+    await sio.emit('settings', app.settings)
 
 @sio.event
 async def update_settings(sid, data):
     # Generic update
-    print(f"Updating settings: {data}")
+    logger.info("Updating settings: %s", list(data.keys()) if data else [])
     
     # Handle specific keys if needed
     if "tool_permissions" in data:
-        SETTINGS["tool_permissions"].update(data["tool_permissions"])
-        if audio_loop:
-            audio_loop.update_permissions(SETTINGS["tool_permissions"])
+        app.settings["tool_permissions"].update(data["tool_permissions"])
+        if app.audio_loop:
+            app.audio_loop.update_permissions(app.settings["tool_permissions"])
             
     if "face_auth_enabled" in data:
-        SETTINGS["face_auth_enabled"] = data["face_auth_enabled"]
+        app.settings["face_auth_enabled"] = data["face_auth_enabled"]
         # If turned OFF, maybe emit auth status true?
         if not data["face_auth_enabled"]:
              await sio.emit('auth_status', {'authenticated': True})
@@ -953,29 +908,28 @@ async def update_settings(sid, data):
                  authenticator.stop() 
 
     if "camera_flipped" in data:
-        SETTINGS["camera_flipped"] = data["camera_flipped"]
-        print(f"[SERVER] Camera flip set to: {data['camera_flipped']}")
+        app.settings["camera_flipped"] = data["camera_flipped"]
+        logger.info("Camera flip set to: %s", data.get('camera_flipped'))
 
     save_settings()
     # Broadcast new full settings
-    await sio.emit('settings', SETTINGS)
+    await sio.emit('settings', app.settings)
 
 
 # Deprecated/Mapped for compatibility if frontend still uses specific events
 @sio.event
 async def get_tool_permissions(sid):
-    await sio.emit('tool_permissions', SETTINGS["tool_permissions"])
+    await sio.emit('tool_permissions', app.settings["tool_permissions"])
 
 @sio.event
 async def update_tool_permissions(sid, data):
-    print(f"Updating permissions (legacy event): {data}")
-    SETTINGS["tool_permissions"].update(data)
+    logger.debug("Updating permissions (legacy): %s", data)
+    app.settings["tool_permissions"].update(data)
     save_settings()
     
-    if audio_loop:
-        audio_loop.update_permissions(SETTINGS["tool_permissions"])
-    # Broadcast update to all
-    await sio.emit('tool_permissions', SETTINGS["tool_permissions"])
+    if app.audio_loop:
+        app.audio_loop.update_permissions(app.settings["tool_permissions"])
+    await sio.emit('tool_permissions', app.settings["tool_permissions"])
 
 if __name__ == "__main__":
     uvicorn.run(
