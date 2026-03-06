@@ -103,20 +103,24 @@ AEGIS/
 │   └── capture_face.py         # Face capture utility
 │
 ├── src/                        # React frontend source
-│   ├── App.jsx                 # Main application component (~1700 lines)
-│   ├── main.jsx                # React entry point
+│   ├── App.jsx                 # Main application component (uses hooks)
+│   ├── main.jsx                # React entry point (ErrorBoundary wrapper)
 │   ├── index.css               # Global Tailwind + custom styles
+│   ├── hooks/                  # React hooks (useSocket, useChat, useAuth, useCadState, etc.)
 │   └── components/
-│       ├── Visualizer.jsx      # Three.js/R3F audio visualizer (3D sphere)
+│       ├── Visualizer.jsx      # 2D canvas fallback for central visualizer
+│       ├── Visualizer3D.jsx    # R3F 3D audio-reactive sphere (primary)
 │       ├── TopAudioBar.jsx     # Mic input waveform bar
 │       ├── ChatModule.jsx      # Chat transcript + text input
 │       ├── ToolsModule.jsx     # Bottom toolbar with action buttons
+│       ├── DraggableWindow.jsx # Shared draggable overlay for CAD, Browser, etc.
 │       ├── CadWindow.jsx       # 3D STL viewer (R3F) + iteration controls
 │       ├── BrowserWindow.jsx   # Web agent screenshot viewer + prompt input
 │       ├── KasaWindow.jsx      # Smart home device list + controls
 │       ├── PrinterWindow.jsx   # 3D printer management + slicing controls
 │       ├── SettingsWindow.jsx  # Device selection + settings modal
 │       ├── ConfirmationPopup.jsx # Tool confirmation dialog
+│       ├── ErrorBoundary.jsx   # React error boundary (fallback UI)
 │       ├── AuthLock.jsx        # Face auth lock screen
 │       └── MemoryPrompt.jsx    # (Deprecated) Memory save prompt
 │
@@ -171,7 +175,7 @@ The heart of the system. Contains the `AudioLoop` class that:
 
 ### `backend/server.py` — WebSocket Gateway
 
-- **FastAPI** app wrapped in **python-socketio** ASGI app on port 8000
+- **FastAPI** app (`web_app`) wrapped in **python-socketio** ASGI app on port 8000; `app` is the `AppServices` container (no longer the FastAPI instance)
 - Socket.IO events: `start_audio`, `stop_audio`, `pause_audio`, `resume_audio`, `user_input`, `video_frame`, `confirm_tool`, `shutdown`, `save_memory`, `upload_memory`, `discover_kasa`, `control_kasa`, `iterate_cad`, `generate_cad`, `prompt_web_agent`, `discover_printers`, `add_printer`, `print_stl`, `get_slicer_profiles`, `get_settings`, `update_settings`
 - Manages global state: `AudioLoop` instance, `FaceAuthenticator`, `KasaAgent`, settings
 - Loads/saves `settings.json` for persistence across restarts
@@ -282,7 +286,7 @@ The heart of the system. Contains the `AudioLoop` class that:
 | `auth_frame` | `{image}` | Camera frame during auth |
 | `kasa_devices` | `[{ip, alias, model, ...}]` | Device list |
 | `kasa_update` | `{ip, is_on, brightness?}` | Single device state change |
-| `printer_list` | `[{name, host, port, type}]` | Discovered printers |
+| `printer_list` | `[{name, host, port, type}]` or `{printers: [...], badge: boolean}` | Printer list; `badge: true` only when discovered/connected (top bar shows count only then) |
 | `print_status_update` | `{printer, state, progress, temps}` | Live print status |
 | `slicing_progress` | `{printer, percent, message}` | Slicing progress |
 | `settings` | full settings object | Current settings |
@@ -355,16 +359,18 @@ When `tool_permissions.<tool>` is `true`, user confirmation is requested before 
 
 ## Frontend UI
 
-The frontend is a single `App.jsx` (~1700 lines) managing a cyberpunk-themed fullscreen interface:
+The frontend is a single `App.jsx` (with hooks and shared components) managing a cyberpunk-themed fullscreen interface:
 
-- **Top bar**: App title, version, FPS counter, printer/device counts, mic waveform visualizer, clock, window controls
-- **Central visualizer**: Three.js 3D audio-reactive sphere (R3F) showing AI voice activity
-- **Chat module**: Scrolling transcript with streaming transcription + text input
-- **Tool bar** (bottom): Power, mic toggle, video toggle, hand tracking toggle, settings, CAD window, browser window, Kasa window, printer window
-- **Floating windows**: CAD viewer (STL in Three.js), browser screenshot viewer, Kasa device list, printer management — all draggable via drag handle headers
+- **Top bar**: App title (Orbitron font), version, FPS counter, **printer count badge** (only when printers are discovered/connected, not saved-but-offline), Kasa device count, mic waveform visualizer, clock, window controls
+- **Central visualizer**: R3F 3D audio-reactive sphere (`Visualizer3D.jsx`) with Suspense fallback to 2D canvas; glass panel styling
+- **Chat module**: Scrolling transcript with role-based styling (User/You: cyan; AEGIS: magenta; System: amber), Framer Motion entrance, **voice hints** when connected (e.g. “Unmute the mic to use voice” / “Listening — try saying: …”), and text input
+- **Tool bar** (bottom): Control-surface styling (edge glow, hover); Power (amber when connected), mic, video, hand tracking, settings, CAD, browser, Kasa, printer — all in glass panel
+- **Floating windows**: CAD viewer (STL in Three.js), browser screenshot viewer, Kasa device list, printer management — all draggable via `DraggableWindow`
 - **Gesture control**: MediaPipe hand tracking with pinch-to-click, fist-to-drag, cursor smoothing, and snap-to-button
 - **Face auth lock screen**: Full-screen overlay with live camera feed during authentication
 - **Confirmation popup**: Modal for approving tool executions
+
+**Status messages in chat**: Only whitelisted system messages (e.g. “A.E.G.I.S. Started”, “Model Connected”) appear in the chat; Kasa/printer discovery and similar backend status messages are no longer added to the transcript.
 
 ---
 
@@ -423,6 +429,18 @@ pytest tests/ -v
 | **3E. tool_registry** | ✅ Done | Consolidated in `tool_registry.py`; `tools.py` re-exports for compatibility |
 | **4. Code quality** | ✅ Done | Logger in backend; server prints → logger; Error Boundary in React; import dedupe |
 | **5. Infrastructure** | ✅ Done | Ruff (pyproject.toml), ESLint, pinned deps, GitHub Actions CI, Electron preload + contextIsolation, Dockerfile |
+
+---
+
+## Recent Changes (UI & Polish)
+
+| Change | Description |
+|--------|-------------|
+| **Server FastAPI fix** | `server.py`: FastAPI app renamed to `web_app` so `app` can remain the `AppServices` container; `@web_app.on_event("startup")` and `@web_app.get("/status")` restored. |
+| **UI modernization** | 3D visualizer (R3F sphere + Suspense fallback), glass panels, Orbitron display font, accent colors (amber/magenta), tool dock edge glow, chat role styling + motion. See `docs/UI_MODERNIZATION_PLAN.md`. |
+| **Printer badge** | Backend emits `printer_list` as `{ printers: [...], badge: true\|false }`. Top bar “X Printers” only when `badge === true` (discovered/connected); saved-but-offline printers no longer show a count. |
+| **Status message filter** | `useChat.js`: only whitelisted status messages (e.g. A.E.G.I.S. Started/Stopped, Model Connected, Ready for voice, Listening) are added to chat; Kasa/printer discovery and similar messages are omitted. |
+| **Voice hints** | `ChatModule`: when connected, shows “Unmute the mic (toolbar) to use voice” or “Listening — try saying: …” with example commands; placeholder text varies by mute state; “You” messages use same cyan style as User. |
 
 ---
 

@@ -22,7 +22,8 @@ const PrinterWindow = ({
         if (socket) {
             handleDiscover();
 
-            socket.on('printer_list', (list) => {
+            socket.on('printer_list', (data) => {
+                const list = Array.isArray(data) ? data : (data && data.printers) || [];
                 setPrinters(list);
                 setIsDiscovering(false);
             });

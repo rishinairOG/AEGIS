@@ -33,8 +33,8 @@ from memory import AegisMemory
 
 # Create a Socket.IO server
 sio = socketio.AsyncServer(async_mode='asgi', cors_allowed_origins='*')
-app = FastAPI()
-app_socketio = socketio.ASGIApp(sio, app)
+web_app = FastAPI()
+app_socketio = socketio.ASGIApp(sio, web_app)
 
 # --- SHUTDOWN HANDLER ---
 def signal_handler(sig: int, frame) -> None:
@@ -115,7 +115,7 @@ load_settings()
 app.kasa_agent = KasaAgent(known_devices=app.settings.get("kasa_devices"))
 # tool_permissions is now SETTINGS["tool_permissions"]
 
-@app.on_event("startup")
+@web_app.on_event("startup")
 async def startup_event():
     import sys
     logger.debug("Startup event triggered; Python %s", sys.version)
@@ -137,7 +137,7 @@ async def startup_event():
             logger.warning("Memory startup failed (continuing without): %s", e)
             app.memory = None
 
-@app.get("/status")
+@web_app.get("/status")
 async def status():
     return {"status": "running", "service": "A.E.G.I.S. Backend"}
 
@@ -667,16 +667,16 @@ async def discover_printers(sid):
                     "camera_url": p.get("camera_url")
                 })
             logger.info("Returning %d saved printers (audio_loop not ready)", len(printer_list))
-            await sio.emit('printer_list', printer_list)
+            await sio.emit('printer_list', {'printers': printer_list, 'badge': False})
             return
         else:
-            await sio.emit('printer_list', [])
+            await sio.emit('printer_list', {'printers': [], 'badge': False})
             await sio.emit('status', {'msg': "Connect to A.E.G.I.S. to enable printer discovery"})
             return
         
     try:
         printers = await app.audio_loop.printer_agent.discover_printers()
-        await sio.emit('printer_list', printers)
+        await sio.emit('printer_list', {'printers': printers, 'badge': True})
         await sio.emit('status', {'msg': f"Found {len(printers)} printers"})
     except Exception as e:
         logger.exception("Error discovering printers")
@@ -752,7 +752,7 @@ async def add_printer(sid, data):
              
         # Refresh list for everyone
         printers = [p.to_dict() for p in app.audio_loop.printer_agent.printers.values()]
-        await sio.emit('printer_list', printers)
+        await sio.emit('printer_list', {'printers': printers, 'badge': True})
         await sio.emit('status', {'msg': f"Added printer: {name}"})
         
     except Exception as e:

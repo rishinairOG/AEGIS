@@ -30,8 +30,10 @@ const ToolsModule = ({
         <div
             id="tools"
             onMouseDown={onMouseDown}
-            className={`absolute px-6 py-3 transition-all duration-200 
-                        backdrop-blur-xl bg-black/40 border border-white/10 shadow-2xl rounded-full`}
+            className="absolute px-6 py-3 transition-all duration-300 rounded-full pointer-events-auto
+                backdrop-blur-xl bg-black/50 border border-white/[0.08]
+                shadow-[0_0_0_1px_rgba(6,182,212,0.15),0_8px_32px_rgba(0,0,0,0.4)]
+                hover:border-cyan-500/25 hover:shadow-[0_0_0_1px_rgba(6,182,212,0.25),0_12px_40px_rgba(0,0,0,0.5)]"
             style={{
                 left: position.x,
                 top: position.y,
@@ -46,7 +48,7 @@ const ToolsModule = ({
                 <button
                     onClick={onTogglePower}
                     className={`p-3 rounded-full border-2 transition-all duration-300 ${isConnected
-                        ? 'border-green-500 bg-green-500/10 text-green-500 hover:bg-green-500/20 shadow-[0_0_15px_rgba(34,197,94,0.3)]'
+                        ? 'border-accent-amber bg-accent-amber/10 text-accent-amber hover:bg-accent-amber/20 shadow-[0_0_15px_rgba(245,158,11,0.25)]'
                         : 'border-gray-600 bg-gray-600/10 text-gray-500 hover:bg-gray-600/20'
                         } `}
                 >

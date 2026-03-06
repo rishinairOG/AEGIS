@@ -14,7 +14,11 @@ export function usePrinterState(socket, setElementPositions, clampToViewport) {
 
     useEffect(() => {
         if (!socket) return;
-        socket.on('printer_list', (list) => setPrinterCount((list && list.length) || 0));
+        socket.on('printer_list', (data) => {
+            const list = Array.isArray(data) ? data : (data && data.printers) || [];
+            const showBadge = Array.isArray(data) ? true : !!(data && data.badge);
+            setPrinterCount(showBadge ? list.length : 0);
+        });
         socket.on('request_print_window', () => {
             setShowPrinterWindow(true);
             if (setElementPositions && clampToViewport) {

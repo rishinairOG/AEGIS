@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, Suspense, lazy } from 'react';
 
 import {
     useSocket,
@@ -14,6 +14,8 @@ import {
 } from './hooks';
 
 import Visualizer from './components/Visualizer';
+
+const Visualizer3D = lazy(() => import('./components/Visualizer3D'));
 import TopAudioBar from './components/TopAudioBar';
 import CadWindow from './components/CadWindow';
 import BrowserWindow from './components/BrowserWindow';
@@ -731,9 +733,9 @@ function App() {
             />
 
             {/* Top Bar (Draggable) */}
-            <div className="z-50 flex items-center justify-between p-2 border-b border-cyan-500/20 bg-black/40 backdrop-blur-md select-none sticky top-0" style={{ WebkitAppRegion: 'drag' }}>
+            <div className="z-50 flex items-center justify-between p-2 border-b border-white/[0.08] bg-black/30 backdrop-blur-xl shadow-[0_4px_24px_rgba(0,0,0,0.3)] select-none sticky top-0" style={{ WebkitAppRegion: 'drag' }}>
                 <div className="flex items-center gap-4 pl-2">
-                    <h1 className="text-xl font-bold tracking-[0.2em] text-cyan-400 drop-shadow-[0_0_10px_rgba(34,211,238,0.5)]">
+                    <h1 className="font-display text-xl font-semibold tracking-[0.25em] text-cyan-400 drop-shadow-[0_0_12px_rgba(34,211,238,0.5)]">
                         A.E.G.I.S.
                     </h1>
                     <div className="text-[10px] text-cyan-700 border border-cyan-900 px-1 rounded">
@@ -789,8 +791,7 @@ function App() {
                 {/* Central Visualizer (AI Audio) */}
                 <div
                     id="visualizer"
-                    className={`absolute flex items-center justify-center transition-all duration-200 
-                        backdrop-blur-xl bg-black/30 border border-white/10 shadow-2xl overflow-visible
+                    className={`absolute flex items-center justify-center transition-all duration-200 glass-panel overflow-visible
                         ${isModularMode ? (activeDragElement === 'visualizer' ? 'ring-2 ring-green-500 bg-green-500/10' : 'ring-1 ring-yellow-500/30 bg-yellow-500/5') + ' rounded-2xl pointer-events-auto' : 'rounded-2xl pointer-events-none'}
                     `}
                     style={{
@@ -803,21 +804,23 @@ function App() {
                     onMouseDown={(e) => handleMouseDown(e, 'visualizer')}
                 >
                     <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-10 pointer-events-none mix-blend-overlay z-10"></div>
-                    <div className="relative z-20">
-                        <Visualizer
-                            audioData={aiAudioData}
-                            isListening={isConnected && !isMuted}
-                            intensity={audioAmp}
-                            width={elementSizes.visualizer.w}
-                            height={elementSizes.visualizer.h}
-                        />
+                    <div className="relative z-20 w-full h-full">
+                        <Suspense fallback={<Visualizer audioData={aiAudioData} isListening={isConnected && !isMuted} intensity={audioAmp} width={elementSizes.visualizer.w} height={elementSizes.visualizer.h} />}>
+                            <Visualizer3D
+                                audioData={aiAudioData}
+                                isListening={isConnected && !isMuted}
+                                intensity={audioAmp}
+                                width={elementSizes.visualizer.w}
+                                height={elementSizes.visualizer.h}
+                            />
+                        </Suspense>
                     </div>
                     {isModularMode && <div className={`absolute top-2 right-2 text-xs font-bold tracking-widest z-20 ${activeDragElement === 'visualizer' ? 'text-green-500' : 'text-yellow-500/50'}`}>VISUALIZER</div>}
                 </div>
 
                 {/* Video Feed Overlay */}
                 {/* Floating Project Label */}
-                <div className="absolute top-[70px] left-1/2 -translate-x-1/2 text-cyan-500 text-xs font-mono tracking-widest pointer-events-none z-50 bg-black/50 px-2 py-1 rounded backdrop-blur-sm border border-cyan-500/20">
+                <div className="absolute top-[70px] left-1/2 -translate-x-1/2 font-display text-cyan-500 text-xs tracking-widest pointer-events-none z-50 bg-black/50 px-2 py-1 rounded backdrop-blur-sm border border-cyan-500/20">
                     PROJECT: {currentProject?.toUpperCase()}
                 </div>
 
@@ -925,6 +928,8 @@ function App() {
                     width={elementSizes.chat.w}
                     height={elementSizes.chat.h}
                     onMouseDown={(e) => handleMouseDown(e, 'chat')}
+                    isConnected={isConnected}
+                    isMuted={isMuted}
                 />
 
                 {/* Footer Controls / Tools Module */}

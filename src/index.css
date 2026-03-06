@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700&family=Share+Tech+Mono&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -8,6 +8,14 @@ body {
   margin: 0;
   background-color: #000;
   overflow: hidden;
+}
+
+/* Glass panel depth */
+.glass-panel {
+  @apply backdrop-blur-xl border border-white/[0.08] shadow-[0_8px_32px_rgba(0,0,0,0.4)];
+}
+.glass-panel-hover:hover {
+  @apply border-white/15 shadow-[0_12px_40px_rgba(0,0,0,0.5)];
 }
 
 /* Custom Scrollbar Hide */
