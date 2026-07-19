@@ -129,7 +129,7 @@ AEGIS/
 │
 ├── tests/                      # Pytest test suite
 │   ├── conftest.py             # Shared fixtures (settings, temp dirs, sample STL)
-│   ├── test_ada_tools.py       # Tool definition tests
+│   ├── test_atlas_tools.py     # Tool definition tests
 │   ├── test_web_agent.py       # Web agent tests
 │   ├── test_kasa_agent.py      # Kasa agent tests
 │   ├── test_cad_agent.py       # CAD agent tests
@@ -380,7 +380,7 @@ The frontend is a single `App.jsx` (with hooks and shared components) managing a
 
 ```bash
 # Terminal 1: Backend
-conda activate ada_v2
+conda activate atlas
 python backend/server.py          # Starts on port 8000
 
 # Terminal 2: Frontend
@@ -403,7 +403,7 @@ pytest tests/ -v
 
 ## Key Design Decisions
 
-1. **Single Python environment**: All backend dependencies (build123d, mediapipe, playwright, etc.) share one conda env (`ada_v2`, Python 3.11)
+1. **Single Python environment**: All backend dependencies (build123d, mediapipe, playwright, etc.) share one conda env (`atlas`, Python 3.11)
 2. **Windows asyncio fix**: `WindowsProactorEventLoopPolicy` is set before any imports to support subprocess creation
 3. **No ORM or database**: All state is file-based (JSON settings, JSONL chat logs, STL files in project folders)
 4. **Tool confirmation flow**: Async `Future`-based pattern — server creates a future, frontend resolves it via `confirm_tool` event

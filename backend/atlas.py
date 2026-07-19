@@ -155,7 +155,7 @@ class AudioLoop:
         # Assuming we are running from backend/ or root? 
         # Using abspath of current file to find root
         current_dir = os.path.dirname(os.path.abspath(__file__))
-        # If ada.py is in backend/, project root is one up
+        # If atlas.py is in backend/, project root is one up
         project_root = os.path.dirname(current_dir)
         self.project_manager = ProjectManager(project_root)
         

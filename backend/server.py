@@ -23,7 +23,7 @@ logger = get_logger("server")
 
 
 
-# Ensure we can import ada
+# Ensure we can import atlas
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 import atlas
@@ -220,7 +220,7 @@ async def start_audio(sid, data=None):
         
     # Callback to send Transcription data to frontend
     def on_transcription(data):
-        # data = {"sender": "User"|"ADA", "text": "..."}
+        # data = {"sender": "User"|"ATLAS", "text": "..."}
         asyncio.create_task(sio.emit('transcription', data))
 
     # Callback to send Confirmation Request to frontend
@@ -232,7 +232,7 @@ async def start_audio(sid, data=None):
     # Callback to send CAD status to frontend
     def on_cad_status(status):
         # status can be: 
-        # - a string like "generating" (from ada.py handle_cad_request)
+        # - a string like "generating" (from atlas.py handle_cad_request)
         # - a dict with {status, attempt, max_attempts, error} (from CadAgent)
         if isinstance(status, dict):
             logger.debug("CAD status: %s (attempt %s/%s)", status.get('status'), status.get('attempt'), status.get('max_attempts'))

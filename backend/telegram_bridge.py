@@ -33,7 +33,7 @@ logging.basicConfig(
 logger = logging.getLogger("ATLAS-TELEGRAM")
 
 # --- GEMINI BRAIN SETUP ---
-# We replicate the Brain config from ada.py to ensure consistent personality
+# We replicate the Brain config from atlas.py to ensure consistent personality
 client = genai.Client(http_options={"api_version": "v1beta"}, api_key=GEMINI_API_KEY)
 MODEL = "gemini-2.0-flash" # Updated to stable 2.0 Flash
 
