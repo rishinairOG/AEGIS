@@ -16,8 +16,8 @@ import {
 import Visualizer from './components/Visualizer';
 
 const Visualizer3D = lazy(() => import('./components/Visualizer3D'));
+const CadWindow = lazy(() => import('./components/CadWindow'));
 import TopAudioBar from './components/TopAudioBar';
-import CadWindow from './components/CadWindow';
 import BrowserWindow from './components/BrowserWindow';
 import DraggableWindow from './components/DraggableWindow';
 import ChatModule from './components/ChatModule';
@@ -883,13 +883,15 @@ function App() {
                         title="CAD PROTOTYPE"
                         onClose={() => setShowCadWindow(false)}
                     >
-                        <CadWindow
-                            data={cadData}
-                            thoughts={cadThoughts}
-                            retryInfo={cadRetryInfo}
-                            onClose={() => setShowCadWindow(false)}
-                            socket={socket}
-                        />
+                        <Suspense fallback={null}>
+                            <CadWindow
+                                data={cadData}
+                                thoughts={cadThoughts}
+                                retryInfo={cadRetryInfo}
+                                onClose={() => setShowCadWindow(false)}
+                                socket={socket}
+                            />
+                        </Suspense>
                     </DraggableWindow>
                 )}
 

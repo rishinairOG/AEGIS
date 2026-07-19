@@ -731,7 +731,7 @@ class AudioLoop:
                 elif fc.name == "list_smart_devices":
                     print(f"[ATLAS DEBUG] [TOOL] Tool Call: 'list_smart_devices'")
                     # Use cached devices directly for speed
-                    # devices_dict is {ip: SmartDevice}
+                    # devices_dict is {ip: Device}
                     dev_summaries = []
                     frontend_list = []
                     for ip, d in self.kasa_agent.devices.items():

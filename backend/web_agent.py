@@ -1,4 +1,5 @@
 import os
+import sys
 import time
 import asyncio
 import base64
@@ -14,6 +15,7 @@ API_KEY = os.getenv("GEMINI_API_KEY")
 # 2. Configuration
 SCREEN_WIDTH = 1440
 SCREEN_HEIGHT = 900
+SELECT_ALL_KEY = "Meta+A" if sys.platform == "darwin" else "Control+A"
 # UPDATED: Use the specific Computer Use preview model
 MODEL_ID = "gemini-2.5-computer-use-preview-10-2025"
 
@@ -84,9 +86,7 @@ class WebAgent:
                     
                     await self.page.mouse.click(x, y)
                     if clear_before:
-                        # 'Meta+A' for Mac, 'Control+A' for Windows/Linux
-                        # Simply using Control+A is usually fine for headless linux/windows envs
-                        await self.page.keyboard.press("Control+A") 
+                        await self.page.keyboard.press(SELECT_ALL_KEY)
                         await self.page.keyboard.press("Backspace")
                     
                     await self.page.keyboard.type(text)

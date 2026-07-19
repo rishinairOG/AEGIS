@@ -1,5 +1,5 @@
 import asyncio
-from kasa import Discover, SmartDevice, SmartBulb, SmartPlug
+from kasa import Discover
 
 class KasaAgent:
     def __init__(self, known_devices=None):
