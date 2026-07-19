@@ -1,5 +1,5 @@
 """
-Centralized logging for AEGIS backend. Use get_logger(__name__) in modules.
+Centralized logging for ATLAS backend. Use get_logger(__name__) in modules.
 """
 import logging
 import sys

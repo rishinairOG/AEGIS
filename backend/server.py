@@ -26,10 +26,10 @@ logger = get_logger("server")
 # Ensure we can import ada
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-import aegis
+import atlas
 from authenticator import FaceAuthenticator
 from kasa_agent import KasaAgent
-from memory import AegisMemory
+from memory import AtlasMemory
 
 # Create a Socket.IO server
 sio = socketio.AsyncServer(async_mode='asgi', cors_allowed_origins='*')
@@ -130,7 +130,7 @@ async def startup_event():
 
     if app.settings.get("memory_enabled", True):
         try:
-            app.memory = AegisMemory()
+            app.memory = AtlasMemory()
             await app.memory.start()
             logger.info("HippoMem long-term memory started.")
         except Exception as e:
@@ -139,12 +139,12 @@ async def startup_event():
 
 @web_app.get("/status")
 async def status():
-    return {"status": "running", "service": "A.E.G.I.S. Backend"}
+    return {"status": "running", "service": "A.T.L.A.S. Backend"}
 
 @sio.event
 async def connect(sid, environ):
     logger.info("Client connected: %s", sid)
-    await sio.emit('status', {'msg': 'Connected to A.E.G.I.S. Backend'}, room=sid)
+    await sio.emit('status', {'msg': 'Connected to A.T.L.A.S. Backend'}, room=sid)
 
     async def on_auth_status(is_auth):
         logger.info("Auth status change: %s", is_auth)
@@ -197,7 +197,7 @@ async def start_audio(sid, data=None):
             app.loop_task = None
         else:
             logger.info("Audio loop already running; re-connecting client.")
-            await sio.emit('status', {'msg': 'A.E.G.I.S. Already Running'})
+            await sio.emit('status', {'msg': 'A.T.L.A.S. Already Running'})
             return
 
 
@@ -264,7 +264,7 @@ async def start_audio(sid, data=None):
 
     try:
         logger.info("Initializing AudioLoop with device_index=%s", device_index)
-        app.audio_loop = aegis.AudioLoop(
+        app.audio_loop = atlas.AudioLoop(
             video_mode="none",
             on_audio_data=on_audio_data,
             on_cad_data=on_cad_data,
@@ -300,8 +300,8 @@ async def start_audio(sid, data=None):
                 # You could emit 'error' here if you have context
         
         app.loop_task.add_done_callback(handle_loop_exit)
-        logger.info("A.E.G.I.S. started")
-        await sio.emit('status', {'msg': 'A.E.G.I.S. Started'})
+        logger.info("A.T.L.A.S. started")
+        await sio.emit('status', {'msg': 'A.T.L.A.S. Started'})
         saved_printers = app.settings.get("printers", [])
         if saved_printers and app.audio_loop.printer_agent:
             logger.info("Loading %d saved printers", len(saved_printers))
@@ -360,7 +360,7 @@ async def stop_audio(sid):
         app.audio_loop.stop()
         logger.info("Stopping Audio Loop")
         app.audio_loop = None
-        await sio.emit('status', {'msg': 'A.E.G.I.S. Stopped'})
+        await sio.emit('status', {'msg': 'A.T.L.A.S. Stopped'})
 
 @sio.event
 async def pause_audio(sid):
@@ -671,7 +671,7 @@ async def discover_printers(sid):
             return
         else:
             await sio.emit('printer_list', {'printers': [], 'badge': False})
-            await sio.emit('status', {'msg': "Connect to A.E.G.I.S. to enable printer discovery"})
+            await sio.emit('status', {'msg': "Connect to A.T.L.A.S. to enable printer discovery"})
             return
         
     try:

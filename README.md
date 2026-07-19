@@ -1,4 +1,4 @@
-# A.E.G.I.S. V2 - Artificial Engineering & Generative Intelligence System
+# A.T.L.A.S. - Autonomous Task, Logistics & Assistance System
 
 ![Python](https://img.shields.io/badge/Python-3.10%20%7C%203.11-blue?logo=python)
 ![React](https://img.shields.io/badge/React-18.2-61DAFB?logo=react)
@@ -6,9 +6,9 @@
 ![Gemini](https://img.shields.io/badge/Google%20Gemini-Native%20Audio-4285F4?logo=google)
 ![License](https://img.shields.io/badge/License-MIT-green)
 
-> **A.E.G.I.S.** = **A**rtificial **E**ngineering & **G**enerative **I**ntelligence **S**ystem
+> **A.T.L.A.S.** = **A**utonomous **T**ask, **L**ogistics & **A**ssistance **S**ystem
 
-A.E.G.I.S. V2 is a sophisticated AI assistant designed for multimodal interaction. It combines Google's Gemini 2.0 Flash with computer vision, gesture control, and 3D CAD generation in an Electron desktop application, with "Always On" remote access via Telegram.
+A.T.L.A.S. is a sophisticated AI assistant designed for multimodal interaction. It combines Google's Gemini 2.0 Flash with computer vision, gesture control, and 3D CAD generation in an Electron desktop application, with "Always On" remote access via Telegram.
 
 ---
 
@@ -28,7 +28,7 @@ A.E.G.I.S. V2 is a sophisticated AI assistant designed for multimodal interactio
 
 ### 🖐️ Gesture Control Details
 
-A.E.G.I.S.'s "Minority Report" interface uses your webcam to detect hand gestures:
+A.T.L.A.S.'s "Minority Report" interface uses your webcam to detect hand gestures:
 
 | Gesture | Action |
 |---------|--------|
@@ -53,7 +53,7 @@ graph TB
     
     subgraph Backend ["Backend (Python 3.11 + FastAPI)"]
         SERVER[server.py<br/>Socket.IO Server]
-        A.E.G.I.S.[ada.py<br/>Gemini Live API]
+        ATLAS[atlas.py<br/>Gemini Live API]
         WEB[web_agent.py<br/>Playwright Browser]
         CAD[cad_agent.py<br/>CAD + build123d]
         PRINTER[printer_agent.py<br/>3D Printing + OrcaSlicer]
@@ -64,10 +64,10 @@ graph TB
     
     UI --> SOCKET_C
     SOCKET_C <--> SERVER
-    SERVER --> A.E.G.I.S.
-    A.E.G.I.S. --> WEB
-    A.E.G.I.S. --> CAD
-    A.E.G.I.S. --> KASA
+    SERVER --> ATLAS
+    ATLAS --> WEB
+    ATLAS --> CAD
+    ATLAS --> KASA
     SERVER --> AUTH
     SERVER --> PM
     SERVER --> PRINTER
@@ -179,7 +179,7 @@ npm install
 ```
 
 ### 4. 🔐 Face Authentication Setup
-To use the secure voice features, A.E.G.I.S. needs to know what you look like.
+To use the secure voice features, A.T.L.A.S. needs to know what you look like.
 
 1. Take a clear photo of your face (or use an existing one).
 2. Rename the file to `reference.jpg`.
@@ -203,7 +203,7 @@ The system creates a `settings.json` file on first run. You can modify this to c
 ---
 
 ### 5. 🖨️ 3D Printer Setup
-A.E.G.I.S. V2 can slice STL files and send them directly to your 3D printer.
+A.T.L.A.S. can slice STL files and send them directly to your 3D printer.
 
 **Supported Hardware:**
 - **Klipper/Moonraker** (Creality K1, Voron, etc.)
@@ -211,21 +211,21 @@ A.E.G.I.S. V2 can slice STL files and send them directly to your 3D printer.
 - **PrusaLink** (Experimental)
 
 **Step 1: Install Slicer**
-A.E.G.I.S. uses **OrcaSlicer** (recommended) or PrusaSlicer to generate G-code.
+A.T.L.A.S. uses **OrcaSlicer** (recommended) or PrusaSlicer to generate G-code.
 1. Download and install [OrcaSlicer](https://github.com/SoftFever/OrcaSlicer).
 2. Run it once to ensure profiles are created.
-3. A.E.G.I.S. automatically detects the installation path.
+3. A.T.L.A.S. automatically detects the installation path.
 
 **Step 2: Connect Printer**
 1. Ensure your printer and computer are on the **same Wi-Fi network**.
-2. Open the **Printer Window** in A.E.G.I.S. (Cube icon).
-3. A.E.G.I.S. automatically scans for printers using mDNS.
+2. Open the **Printer Window** in A.T.L.A.S. (Cube icon).
+3. A.T.L.A.S. automatically scans for printers using mDNS.
 4. **Manual Connection**: If your printer isn't found, use the "Add Printer" button and enter the IP address (e.g., `192.168.1.50`).
 
 ---
 
 ### 6. 🔑 Gemini API Key Setup
-A.E.G.I.S. uses Google's Gemini API for voice and intelligence. You need a free API key.
+A.T.L.A.S. uses Google's Gemini API for voice and intelligence. You need a free API key.
 
 1. Go to [Google AI Studio](https://aistudio.google.com/app/apikey).
 2. Sign in with your Google account.
@@ -238,7 +238,7 @@ A.E.G.I.S. uses Google's Gemini API for voice and intelligence. You need a free 
 6. Replace `your_api_key_here` with the key you copied.
 
 ### 7. 📱 Telegram Bot Setup (Optional)
-A.E.G.I.S. can be accessed remotely via a secure Telegram bot.
+A.T.L.A.S. can be accessed remotely via a secure Telegram bot.
 1. Create a bot via [@BotFather](https://t.me/botfather).
 2. Add `TELEGRAM_BOT_TOKEN` and your `TELEGRAM_USER_ID` to the `.env` file.
 3. The bot will run automatically when you start the system via PM2.
@@ -247,7 +247,7 @@ A.E.G.I.S. can be accessed remotely via a secure Telegram bot.
 
 ---
 
-## 🚀 Running A.E.G.I.S. V2
+## 🚀 Running A.T.L.A.S.
 
 You have two options to run the app. Ensure your `ada_v2` environment is active!
 
@@ -280,7 +280,7 @@ npm run dev
 
 ## ✅ First Flight Checklist (Things to Test)
 
-1. **Voice Check**: Say "Hello Aegis". He should respond.
+1. **Voice Check**: Say "Hello Atlas". He should respond.
 2. **Vision Check**: Look at the camera. If Face Auth is on, the lock screen should unlock.
 3. **CAD Check**: Open the CAD window and say "Create a cube". Watch the logs.
 4. **Web Check**: Open the Browser window and say "Go to Google".
@@ -307,9 +307,9 @@ npm run dev
 - **Note**: The agent will auto-scroll, click, and type. Do not interfere with the browser window while it runs.
 
 ### 🖨️ Printing & Slicing
-- **Auto-Discovery**: A.E.G.I.S. automatically finds printers on your network.
+- **Auto-Discovery**: A.T.L.A.S. automatically finds printers on your network.
 - **Slicing**: Click "Slice & Print" on any generated 3D model.
-- **Profiles**: A.E.G.I.S. intelligently selects the correct OrcaSlicer profile based on your printer's name (e.g., "Creality K1").
+- **Profiles**: A.T.L.A.S. intelligently selects the correct OrcaSlicer profile based on your printer's name (e.g., "Creality K1").
 
 ---
 

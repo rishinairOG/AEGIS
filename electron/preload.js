@@ -4,7 +4,7 @@
  */
 const { contextBridge, ipcRenderer } = require('electron');
 
-contextBridge.exposeInMainWorld('aegisBridge', {
+contextBridge.exposeInMainWorld('atlasBridge', {
   send: (channel, ...args) => {
     const allowed = ['window-minimize', 'window-maximize', 'window-close'];
     if (allowed.includes(channel)) {
@@ -12,7 +12,7 @@ contextBridge.exposeInMainWorld('aegisBridge', {
     }
   },
   openExternal: (url) => {
-    // Renderer will call aegisBridge.openExternal(url); main listens and calls shell.openExternal
+    // Renderer will call atlasBridge.openExternal(url); main listens and calls shell.openExternal
     ipcRenderer.send('open-external', url);
   },
 });

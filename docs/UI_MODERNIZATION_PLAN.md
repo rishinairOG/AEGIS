@@ -1,4 +1,4 @@
-# AEGIS UI Modernization Plan (Executed)
+# ATLAS UI Modernization Plan (Executed)
 
 Plan mode: plan then execute. All items below have been implemented.
 
@@ -18,7 +18,7 @@ Plan mode: plan then execute. All items below have been implemented.
 
 - **tailwind.config.js**: `fontFamily.display` = `Orbitron`.
 - **index.css**: Google Fonts import for Orbitron.
-- **App.jsx**: Main title "A.E.G.I.S." uses `font-display`.
+- **App.jsx**: Main title "A.T.L.A.S." uses `font-display`.
 - **Visualizer3D.jsx**: Overlay label uses `font-display`.
 - **App.jsx**: Floating "PROJECT:" badge uses `font-display`.
 - **ChatModule.jsx**: Message sender label uses `font-display`.
@@ -27,7 +27,7 @@ Plan mode: plan then execute. All items below have been implemented.
 
 - **tailwind.config.js**: `accent.amber` (#f59e0b), `accent.magenta` (#d946ef).
 - **ToolsModule.jsx**: Power button when connected uses `accent-amber` (border, bg, text, shadow).
-- **ChatModule.jsx**: Role-based colors — User: cyan; AEGIS/Model: magenta; System/other: amber.
+- **ChatModule.jsx**: Role-based colors — User: cyan; ATLAS/Model: magenta; System/other: amber.
 
 ## 5. Tool dock (control surface)
 
@@ -35,7 +35,7 @@ Plan mode: plan then execute. All items below have been implemented.
 
 ## 6. Chat (entrance + role styling)
 
-- **ChatModule.jsx**: Each message is a `motion.div` with `initial={{ opacity: 0, y: 8 }}`, `animate={{ opacity: 1, y: 0 }}`, and role-based left border, label color, and light background (User: cyan; AEGIS: magenta; System: amber).
+- **ChatModule.jsx**: Each message is a `motion.div` with `initial={{ opacity: 0, y: 8 }}`, `animate={{ opacity: 1, y: 0 }}`, and role-based left border, label color, and light background (User: cyan; ATLAS: magenta; System: amber).
 
 ## Files touched
 

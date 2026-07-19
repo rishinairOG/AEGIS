@@ -30,7 +30,7 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
-logger = logging.getLogger("AEGIS-TELEGRAM")
+logger = logging.getLogger("ATLAS-TELEGRAM")
 
 # --- GEMINI BRAIN SETUP ---
 # We replicate the Brain config from ada.py to ensure consistent personality
@@ -38,7 +38,7 @@ client = genai.Client(http_options={"api_version": "v1beta"}, api_key=GEMINI_API
 MODEL = "gemini-2.0-flash" # Updated to stable 2.0 Flash
 
 SYSTEM_INSTRUCTION = (
-    "Your name is A.E.G.I.S., which stands for Artificial Engineering & Generative Intelligence System. "
+    "Your name is A.T.L.A.S., which stands for Autonomous Task, Logistics & Assistance System. "
     "You possess the sophisticated, witty, and dryly charming personality of a British digital butler, reminiscent of J.A.R.V.I.S. "
     "Your creator is Rishi, and you always address him as 'Sir'. "
     "When answering, respond using complete and concise sentences to maintain a professional yet cutting-edge aura. "
@@ -62,11 +62,11 @@ memory = None
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id != AUTHORIZED_USER_ID:
-        await update.message.reply_text("⛔ Access Denied. You are not authorized to access A.E.G.I.S.")
+        await update.message.reply_text("⛔ Access Denied. You are not authorized to access A.T.L.A.S.")
         logger.warning(f"Unauthorized access attempt from user_id: {user_id}")
         return
 
-    await update.message.reply_text("Greetings, Sir. A.E.G.I.S. Telegram Bridge is active and standing by.")
+    await update.message.reply_text("Greetings, Sir. A.T.L.A.S. Telegram Bridge is active and standing by.")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global memory
@@ -87,8 +87,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Lazy-start HippoMem long-term memory
         if memory is None:
             try:
-                from memory import AegisMemory
-                memory = AegisMemory()
+                from memory import AtlasMemory
+                memory = AtlasMemory()
                 await memory.start()
                 logger.info("HippoMem memory started for Telegram bridge.")
             except Exception as e:
@@ -132,7 +132,7 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     mem_mb = process.memory_info().rss / (1024 * 1024)
     
     status_msg = (
-        "🛡️ **A.E.G.I.S. Status Report**\n\n"
+        "🛡️ **A.T.L.A.S. Status Report**\n\n"
         f"**System**: Online\n"
         f"**Bridge PID**: {os.getpid()}\n"
         f"**Memory Usage**: {mem_mb:.1f} MB\n"
@@ -153,5 +153,5 @@ if __name__ == "__main__":
     application.add_handler(CommandHandler("status", status))
     application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("[TELEGRAM] A.E.G.I.S. Telegram Bridge Started. Filtering by ID:", AUTHORIZED_USER_ID)
+    print("[TELEGRAM] A.T.L.A.S. Telegram Bridge Started. Filtering by ID:", AUTHORIZED_USER_ID)
     application.run_polling()

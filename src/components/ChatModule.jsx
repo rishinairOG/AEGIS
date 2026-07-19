@@ -4,7 +4,7 @@ import { motion } from 'framer-motion';
 function roleStyles(sender) {
   const s = (sender || '').toLowerCase();
   if (s === 'user' || s === 'you') return { border: 'border-l-cyan-500/60', label: 'text-cyan-400', bg: 'bg-cyan-500/5' };
-  if (s === 'aegis' || s === 'model') return { border: 'border-l-accent-magenta/70', label: 'text-accent-magenta', bg: 'bg-accent-magenta/5' };
+  if (s === 'atlas' || s === 'model') return { border: 'border-l-accent-magenta/70', label: 'text-accent-magenta', bg: 'bg-accent-magenta/5' };
   return { border: 'border-l-amber-500/50', label: 'text-accent-amber', bg: 'bg-accent-amber/5' };
 }
 

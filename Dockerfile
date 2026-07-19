@@ -1,4 +1,4 @@
-# Minimal Dockerfile for AEGIS backend (run server + deps; frontend/Electron run separately)
+# Minimal Dockerfile for ATLAS backend (run server + deps; frontend/Electron run separately)
 FROM python:3.11-slim
 
 WORKDIR /app

@@ -1,13 +1,13 @@
-# A.E.G.I.S. V2 — Codebase Context
+# A.T.L.A.S. — Codebase Context
 
-> **A.E.G.I.S.** = **A**rtificial **E**ngineering & **G**enerative **I**ntelligence **S**ystem
+> **A.T.L.A.S.** = **A**utonomous **T**ask, **L**ogistics & **A**ssistance **S**ystem
 > Created by Rishi. Licensed MIT.
 
 ---
 
 ## Overview
 
-A.E.G.I.S. V2 is a multimodal AI desktop assistant built as an **Electron + React** frontend communicating with a **Python (FastAPI + Socket.IO)** backend. The AI backbone is **Google Gemini 2.5 Flash** with native real-time audio, vision, and tool-calling capabilities. The system integrates CAD generation, 3D printing, browser automation, smart home control, face authentication, and remote Telegram access.
+A.T.L.A.S. is a multimodal AI desktop assistant built as an **Electron + React** frontend communicating with a **Python (FastAPI + Socket.IO)** backend. The AI backbone is **Google Gemini 2.5 Flash** with native real-time audio, vision, and tool-calling capabilities. The system integrates CAD generation, 3D printing, browser automation, smart home control, face authentication, and remote Telegram access.
 
 ---
 
@@ -49,7 +49,7 @@ A.E.G.I.S. V2 is a multimodal AI desktop assistant built as an **Electron + Reac
 │  FastAPI + Socket.IO ASGI server on port 8000         │
 │                                                       │
 │  ┌─────────┐  ┌──────────┐  ┌──────────────┐        │
-│  │ aegis.py│  │cad_agent │  │ web_agent.py │        │
+│  │ atlas.py│  │cad_agent │  │ web_agent.py │        │
 │  │AudioLoop│  │  .py     │  │ (Playwright) │        │
 │  │Gemini   │  │(build123d│  └──────────────┘        │
 │  │Live API │  │ + Gemini)│                           │
@@ -84,11 +84,11 @@ A.E.G.I.S. V2 is a multimodal AI desktop assistant built as an **Electron + Reac
 AEGIS/
 ├── backend/                    # Python backend (all agents + server)
 │   ├── server.py               # FastAPI + Socket.IO ASGI server (AppServices container)
-│   ├── aegis.py                # Core AudioLoop class — Gemini Live API session
+│   ├── atlas.py                # Core AudioLoop class — Gemini Live API session
 │   ├── tool_registry.py        # Consolidated tool definitions + default permissions
 │   ├── tools.py                # Re-exports from tool_registry (backward compat)
 │   ├── logger.py               # Centralized backend logging
-│   ├── memory.py               # HippoMem wrapper (AegisMemory)
+│   ├── memory.py               # HippoMem wrapper (AtlasMemory)
 │   ├── cad_agent.py            # CAD generation via Gemini 3 Pro + build123d
 │   ├── web_agent.py            # Browser automation via Gemini 2.5 Computer Use + Playwright
 │   ├── kasa_agent.py           # TP-Link Kasa smart home control
@@ -145,7 +145,7 @@ AEGIS/
 ├── .env                        # API keys: GEMINI_API_KEY, FIRECRAWL_API_KEY, TELEGRAM_*
 ├── .env.example                # Template for .env
 ├── settings.json               # Persistent app settings (face auth, permissions, printers, kasa)
-├── ecosystem.config.js         # PM2 process definitions (AEGIS-CORE + AEGIS-TELEGRAM)
+├── ecosystem.config.js         # PM2 process definitions (ATLAS-CORE + ATLAS-TELEGRAM)
 ├── package.json                # Node dependencies + scripts
 ├── requirements.txt            # Python dependencies
 ├── vite.config.js              # Vite config
@@ -159,7 +159,7 @@ AEGIS/
 
 ## Key Modules Deep Dive
 
-### `backend/aegis.py` — Core AI Engine
+### `backend/atlas.py` — Core AI Engine
 
 The heart of the system. Contains the `AudioLoop` class that:
 
@@ -237,7 +237,7 @@ The heart of the system. Contains the `AudioLoop` class that:
 
 ### `backend/telegram_bridge.py` — Remote Access
 
-- Standalone daemon (separate PM2 process: `AEGIS-TELEGRAM`)
+- Standalone daemon (separate PM2 process: `ATLAS-TELEGRAM`)
 - Uses `python-telegram-bot` with Gemini 2.0 Flash chat session
 - Authenticated by `TELEGRAM_USER_ID` — unauthorized users are silently dropped
 - Commands: `/start`, `/status` (shows memory usage, PID, model info)
@@ -363,14 +363,14 @@ The frontend is a single `App.jsx` (with hooks and shared components) managing a
 
 - **Top bar**: App title (Orbitron font), version, FPS counter, **printer count badge** (only when printers are discovered/connected, not saved-but-offline), Kasa device count, mic waveform visualizer, clock, window controls
 - **Central visualizer**: R3F 3D audio-reactive sphere (`Visualizer3D.jsx`) with Suspense fallback to 2D canvas; glass panel styling
-- **Chat module**: Scrolling transcript with role-based styling (User/You: cyan; AEGIS: magenta; System: amber), Framer Motion entrance, **voice hints** when connected (e.g. “Unmute the mic to use voice” / “Listening — try saying: …”), and text input
+- **Chat module**: Scrolling transcript with role-based styling (User/You: cyan; ATLAS: magenta; System: amber), Framer Motion entrance, **voice hints** when connected (e.g. “Unmute the mic to use voice” / “Listening — try saying: …”), and text input
 - **Tool bar** (bottom): Control-surface styling (edge glow, hover); Power (amber when connected), mic, video, hand tracking, settings, CAD, browser, Kasa, printer — all in glass panel
 - **Floating windows**: CAD viewer (STL in Three.js), browser screenshot viewer, Kasa device list, printer management — all draggable via `DraggableWindow`
 - **Gesture control**: MediaPipe hand tracking with pinch-to-click, fist-to-drag, cursor smoothing, and snap-to-button
 - **Face auth lock screen**: Full-screen overlay with live camera feed during authentication
 - **Confirmation popup**: Modal for approving tool executions
 
-**Status messages in chat**: Only whitelisted system messages (e.g. “A.E.G.I.S. Started”, “Model Connected”) appear in the chat; Kasa/printer discovery and similar backend status messages are no longer added to the transcript.
+**Status messages in chat**: Only whitelisted system messages (e.g. “A.T.L.A.S. Started”, “Model Connected”) appear in the chat; Kasa/printer discovery and similar backend status messages are no longer added to the transcript.
 
 ---
 
@@ -390,7 +390,7 @@ npm run dev                       # Vite dev server on :5173, Electron opens aft
 ### Production (PM2 daemon)
 
 ```bash
-npm run dev    # Starts both PM2 daemons (AEGIS-CORE, AEGIS-TELEGRAM) + Vite + Electron
+npm run dev    # Starts both PM2 daemons (ATLAS-CORE, ATLAS-TELEGRAM) + Vite + Electron
 ```
 
 ### Tests
@@ -416,7 +416,7 @@ pytest tests/ -v
 
 ---
 
-## Improvement Plan Progress (AEGIS Combined)
+## Improvement Plan Progress (ATLAS Combined)
 
 | Step | Status | Notes |
 |------|--------|------|
@@ -439,7 +439,7 @@ pytest tests/ -v
 | **Server FastAPI fix** | `server.py`: FastAPI app renamed to `web_app` so `app` can remain the `AppServices` container; `@web_app.on_event("startup")` and `@web_app.get("/status")` restored. |
 | **UI modernization** | 3D visualizer (R3F sphere + Suspense fallback), glass panels, Orbitron display font, accent colors (amber/magenta), tool dock edge glow, chat role styling + motion. See `docs/UI_MODERNIZATION_PLAN.md`. |
 | **Printer badge** | Backend emits `printer_list` as `{ printers: [...], badge: true\|false }`. Top bar “X Printers” only when `badge === true` (discovered/connected); saved-but-offline printers no longer show a count. |
-| **Status message filter** | `useChat.js`: only whitelisted status messages (e.g. A.E.G.I.S. Started/Stopped, Model Connected, Ready for voice, Listening) are added to chat; Kasa/printer discovery and similar messages are omitted. |
+| **Status message filter** | `useChat.js`: only whitelisted status messages (e.g. A.T.L.A.S. Started/Stopped, Model Connected, Ready for voice, Listening) are added to chat; Kasa/printer discovery and similar messages are omitted. |
 | **Voice hints** | `ChatModule`: when connected, shows “Unmute the mic (toolbar) to use voice” or “Listening — try saying: …” with example commands; placeholder text varies by mute state; “You” messages use same cyan style as User. |
 
 ---
@@ -448,7 +448,7 @@ pytest tests/ -v
 
 - `App.jsx` reduced via hooks and DraggableWindow; further decomposition possible
 - Duplicate `except` block in `printer_agent.py` fixed
-- Indentation in `aegis.py` tool-call block normalized (Step 3C)
+- Indentation in `atlas.py` tool-call block normalized (Step 3C)
 - `save_memory` write bug fixed
 - `authenticator.py` uses platform-specific camera backend (Windows/macOS)
 - `web_agent.py` uses `Control+A` for select-all which doesn't work on macOS (should be `Meta+A`)

@@ -1,7 +1,7 @@
 [project]
-name = "aegis"
+name = "atlas"
 version = "2.0.0"
-description = "A.E.G.I.S. - Artificial Engineering & Generative Intelligence System"
+description = "A.T.L.A.S. - Autonomous Task, Logistics & Assistance System"
 readme = "README.md"
 requires-python = ">=3.11"
 

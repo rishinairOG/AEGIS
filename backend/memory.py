@@ -1,5 +1,5 @@
 """
-AEGIS wrapper for HippoMem — brain-inspired persistent memory for LLM chat.
+ATLAS wrapper for HippoMem — brain-inspired persistent memory for LLM chat.
 Uses Gemini's OpenAI-compatible endpoint; no separate API key required.
 """
 import os
@@ -14,9 +14,9 @@ USER_ID = "rishi"
 GEMINI_OPENAI_BASE = "https://generativelanguage.googleapis.com/v1beta/openai"
 
 
-class AegisMemory:
+class AtlasMemory:
     """
-    Thin wrapper around HippoMem MemoryService for AEGIS.
+    Thin wrapper around HippoMem MemoryService for ATLAS.
     Single-user (user_id="rishi"). Exposes start/recall/remember/stop.
     """
 
@@ -45,13 +45,13 @@ class AegisMemory:
     async def start(self) -> None:
         """Create DB, session factory, and start background consolidation."""
         if not self._api_key:
-            logger.warning("AegisMemory: GEMINI_API_KEY not set; memory disabled.")
+            logger.warning("AtlasMemory: GEMINI_API_KEY not set; memory disabled.")
             return
         try:
             from hippomem import MemoryService
             from hippomem.config import MemoryConfig
         except ImportError as e:
-            logger.warning("AegisMemory: hippomem not installed; memory disabled. %s", e)
+            logger.warning("AtlasMemory: hippomem not installed; memory disabled. %s", e)
             return
 
         config = MemoryConfig(
@@ -69,7 +69,7 @@ class AegisMemory:
             config=config,
         )
         await self.service.setup()
-        logger.info("AegisMemory: started (user_id=%s)", USER_ID)
+        logger.info("AtlasMemory: started (user_id=%s)", USER_ID)
 
     async def recall(
         self,
@@ -94,7 +94,7 @@ class AegisMemory:
             self._last_decode = result
             return result.context or ""
         except Exception as e:
-            logger.exception("AegisMemory recall failed: %s", e)
+            logger.exception("AtlasMemory recall failed: %s", e)
             return ""
 
     async def remember(
@@ -121,7 +121,7 @@ class AegisMemory:
                 conversation_history=conversation_history,
             )
         except Exception as e:
-            logger.exception("AegisMemory remember failed: %s", e)
+            logger.exception("AtlasMemory remember failed: %s", e)
 
     async def stop(self) -> None:
         """Run consolidation and close the service."""
@@ -130,9 +130,9 @@ class AegisMemory:
         try:
             await self.service.consolidate(USER_ID)
             await self.service.close()
-            logger.info("AegisMemory: stopped")
+            logger.info("AtlasMemory: stopped")
         except Exception as e:
-            logger.exception("AegisMemory stop failed: %s", e)
+            logger.exception("AtlasMemory stop failed: %s", e)
         finally:
             self.service = None
             self._last_decode = None

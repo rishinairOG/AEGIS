@@ -1,13 +1,13 @@
 module.exports = {
     apps: [
         {
-            name: 'AEGIS-CORE',
+            name: 'ATLAS-CORE',
             script: 'backend/server.py',
             interpreter: 'python',
             autorestart: true,
             max_memory_restart: '1G',
-            out_file: '~/.aegis/logs/combined.log',
-            error_file: '~/.aegis/logs/combined.log',
+            out_file: '~/.atlas/logs/combined.log',
+            error_file: '~/.atlas/logs/combined.log',
             merge_logs: true,
             env: {
                 NODE_ENV: 'development',
@@ -17,13 +17,13 @@ module.exports = {
             }
         },
         {
-            name: 'AEGIS-TELEGRAM',
+            name: 'ATLAS-TELEGRAM',
             script: 'backend/telegram_bridge.py',
             interpreter: 'python',
             autorestart: true,
             max_memory_restart: '500M',
-            out_file: '~/.aegis/logs/telegram.log',
-            error_file: '~/.aegis/logs/telegram.log',
+            out_file: '~/.atlas/logs/telegram.log',
+            error_file: '~/.atlas/logs/telegram.log',
             merge_logs: true,
             env: {
                 NODE_ENV: 'development',

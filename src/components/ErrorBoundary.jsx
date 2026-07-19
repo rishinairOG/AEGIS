@@ -15,7 +15,7 @@ class ErrorBoundary extends React.Component {
   }
 
   componentDidCatch(error, errorInfo) {
-    console.error('[AEGIS] ErrorBoundary caught:', error, errorInfo?.componentStack);
+    console.error('[ATLAS] ErrorBoundary caught:', error, errorInfo?.componentStack);
   }
 
   render() {

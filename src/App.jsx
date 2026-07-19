@@ -33,7 +33,7 @@ import SettingsWindow from './components/SettingsWindow';
 
 
 
-const aegisBridge = window.aegisBridge || { send: () => {} };
+const atlasBridge = window.atlasBridge || { send: () => {} };
 
 function App() {
     const { socket, status, setStatus, socketConnected } = useSocket('http://localhost:8000');
@@ -601,14 +601,14 @@ function App() {
         }
     };
 
-    const handleMinimize = () => aegisBridge.send('window-minimize');
-    const handleMaximize = () => aegisBridge.send('window-maximize');
+    const handleMinimize = () => atlasBridge.send('window-minimize');
+    const handleMaximize = () => atlasBridge.send('window-maximize');
 
     // Close Application - memory is now actively saved to project, no prompt needed
     const handleCloseRequest = () => {
         // Emit shutdown signal to backend for graceful shutdown
         // Use volatile emit with timeout fallback to ensure window closes even if server is unresponsive
-        const closeWindow = () => aegisBridge.send('window-close');
+        const closeWindow = () => atlasBridge.send('window-close');
 
         if (socket.connected) {
             console.log('[APP] Sending shutdown signal to backend...');
@@ -736,7 +736,7 @@ function App() {
             <div className="z-50 flex items-center justify-between p-2 border-b border-white/[0.08] bg-black/30 backdrop-blur-xl shadow-[0_4px_24px_rgba(0,0,0,0.3)] select-none sticky top-0" style={{ WebkitAppRegion: 'drag' }}>
                 <div className="flex items-center gap-4 pl-2">
                     <h1 className="font-display text-xl font-semibold tracking-[0.25em] text-cyan-400 drop-shadow-[0_0_12px_rgba(34,211,238,0.5)]">
-                        A.E.G.I.S.
+                        A.T.L.A.S.
                     </h1>
                     <div className="text-[10px] text-cyan-700 border border-cyan-900 px-1 rounded">
                         V2.0.0

@@ -15,8 +15,8 @@ export function useChat(socket, setStatus) {
 
     // Status messages that are user-relevant (shown in chat). Others (Kasa/printer discovery, etc.) are not.
     const STATUS_CHAT_WHITELIST = [
-        'A.E.G.I.S. Started',
-        'A.E.G.I.S. Stopped',
+        'A.T.L.A.S. Started',
+        'A.T.L.A.S. Stopped',
         'Model Connected',
         'Ready for voice',
         'Listening...',
@@ -27,8 +27,8 @@ export function useChat(socket, setStatus) {
     useEffect(() => {
         if (!socket) return;
         socket.on('status', (data) => {
-            if (data.msg === 'A.E.G.I.S. Started') setStatus('Model Connected');
-            else if (data.msg === 'A.E.G.I.S. Stopped') setStatus('Connected');
+            if (data.msg === 'A.T.L.A.S. Started') setStatus('Model Connected');
+            else if (data.msg === 'A.T.L.A.S. Stopped') setStatus('Connected');
             if (isChatRelevantStatus(data.msg)) addMessage('System', data.msg);
         });
         socket.on('transcription', (data) => {

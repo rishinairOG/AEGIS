@@ -73,7 +73,7 @@ export default function Visualizer3D({ audioData, isListening, intensity = 0, wi
           className="font-display text-cyan-400/90 font-semibold tracking-[0.35em] drop-shadow-[0_0_20px_rgba(34,211,238,0.6)]"
           style={{ fontSize: Math.min(width, height) * 0.08 }}
         >
-          A.E.G.I.S.
+          A.T.L.A.S.
         </span>
       </div>
     </div>

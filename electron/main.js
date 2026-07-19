@@ -62,7 +62,7 @@ function createWindow() {
 }
 
 // startPythonBackend function removed.
-// Backend is now managed as a daemon with PM2 (AEGIS-CORE).
+// Backend is now managed as a daemon with PM2 (ATLAS-CORE).
 
 app.whenReady().then(() => {
     ipcMain.on('window-minimize', () => {
@@ -89,7 +89,7 @@ app.whenReady().then(() => {
         }
     });
 
-    console.log('Waiting for AEGIS-CORE daemon on port 8000...');
+    console.log('Waiting for ATLAS-CORE daemon on port 8000...');
     waitForBackend().then(createWindow);
 
     app.on('activate', () => {
@@ -150,5 +150,5 @@ app.on('window-all-closed', () => {
 });
 
 app.on('will-quit', () => {
-    console.log('App closing... AEGIS-CORE daemon remains active.');
+    console.log('App closing... ATLAS-CORE daemon remains active.');
 });
