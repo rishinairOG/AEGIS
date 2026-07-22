@@ -36,3 +36,37 @@ out/
 # OS
 .DS_Store
 Thumbs.db
+
+# Claude Code / claude-flow local runtime state (never commit credentials/session data)
+.claude/.credentials.json
+.claude/.credentials.json.tmp.*
+.claude/settings.local.json
+.claude/projects/
+.claude/jobs/
+.claude/.last-cleanup
+.claude/.last-update-result.json
+.claude/.caveman-active
+.claude/.caveman-mode-log.jsonl
+.claude/daemon/
+.claude/daemon-auth-cooldown
+.claude/daemon-auth-status.json
+.claude/daemon.lock
+.claude/daemon.log
+.claude/daemon.status.json
+.claude/memory.db
+.claude/history.jsonl
+.claude/mcp-needs-auth-cache.json
+.claude/stats-cache.json
+.claude/cache/
+.claude/tmp/
+.claude/backups/
+.claude/debug/
+.claude/ide/
+.claude/paste-cache/
+.claude/shell-snapshots/
+.claude/file-history/
+.claude/teams/
+.claude/session-env/
+.claude/sessions/
+.claude/chrome/
+.claude/telemetry/
