@@ -1002,10 +1002,27 @@ class AudioLoop:
     async def get_screen(self):
          pass
 
+    @staticmethod
+    def _classify_connection_error(err):
+        """Classify a Live API connection failure so we can react appropriately.
+
+        Returns 'auth' (permanent — never self-heals, stop retrying),
+        'quota' (may recover when a per-minute window resets, but hammering
+        won't help — back off hard and tell the user), or 'transient'
+        (network blip — retry quickly and silently, existing behavior).
+        """
+        msg = str(err).lower()
+        if any(k in msg for k in ("permission_denied", "unauthenticated", "api key", "api_key", "401", "403")):
+            return "auth"
+        if any(k in msg for k in ("quota", "exceeded", "resource_exhausted", "429", "1011")):
+            return "quota"
+        return "transient"
+
     async def run(self, start_message=None):
         retry_delay = 1
         is_reconnect = False
-        
+        last_error_surfaced = None  # dedupe user-facing notices across a retry streak
+
         while not self.stop_event.is_set():
             try:
                 print(f"[ATLAS DEBUG] [CONNECT] Connecting to Gemini Live API...")
@@ -1079,9 +1096,10 @@ class AudioLoop:
                         print(f"[ATLAS DEBUG] [RECONNECT] Sending restoration context to model...")
                         await self.session.send(input=context_msg, end_of_turn=True)
 
-                    # Reset retry delay on successful connection
+                    # Reset retry delay + error-dedupe on successful connection
                     retry_delay = 1
-                    
+                    last_error_surfaced = None
+
                     # Wait until stop event, or until the session task group exits (which happens on error)
                     # Actually, the TaskGroup context manager will exit if any tasks fail/cancel.
                     # We need to keep this block alive.
@@ -1102,14 +1120,41 @@ class AudioLoop:
             except Exception as e:
                 # This catches the ExceptionGroup from TaskGroup or direct exceptions
                 print(f"[ATLAS DEBUG] [ERR] Connection Error: {e}")
-                
+
                 if self.stop_event.is_set():
                     break
-                
-                print(f"[ATLAS DEBUG] [RETRY] Reconnecting in {retry_delay} seconds...")
-                await asyncio.sleep(retry_delay)
-                retry_delay = min(retry_delay * 2, 10) # Exponential backoff capped at 10s
-                is_reconnect = True # Next loop will be a reconnect
+
+                error_kind = self._classify_connection_error(e)
+
+                if error_kind == "auth":
+                    # Never self-heals — surface once and stop the pointless loop.
+                    if self.on_error and last_error_surfaced != "auth":
+                        self.on_error(
+                            "Authentication failed connecting to Gemini. Check your GEMINI_API_KEY, then restart me."
+                        )
+                        last_error_surfaced = "auth"
+                    print("[ATLAS DEBUG] [ERR] Auth failure — stopping reconnect attempts.")
+                    break
+
+                if error_kind == "quota":
+                    # Per-minute quota may recover, but retrying every few seconds
+                    # won't help within the window — surface it once and back off hard.
+                    if self.on_error and last_error_surfaced != "quota":
+                        self.on_error(
+                            "Gemini API quota exceeded — voice responses are paused until it resets "
+                            "(check your plan/billing). I'll keep retrying in the background."
+                        )
+                        last_error_surfaced = "quota"
+                    quota_delay = max(retry_delay, 30)
+                    print(f"[ATLAS DEBUG] [RETRY] Quota exceeded; reconnecting in {quota_delay} seconds...")
+                    await asyncio.sleep(quota_delay)
+                    retry_delay = min(quota_delay * 2, 60)  # back off up to 60s for quota
+                    is_reconnect = True
+                else:
+                    print(f"[ATLAS DEBUG] [RETRY] Reconnecting in {retry_delay} seconds...")
+                    await asyncio.sleep(retry_delay)
+                    retry_delay = min(retry_delay * 2, 10)  # Exponential backoff capped at 10s
+                    is_reconnect = True  # Next loop will be a reconnect
                 
             finally:
                 # Cleanup before retry; close long-term memory when user stops

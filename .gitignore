@@ -37,9 +37,10 @@ out/
 .DS_Store
 Thumbs.db
 
-# Local dev/debug logs
+# Local dev/debug logs (telegram_boot.log can contain the bot token in request URLs)
 backend_boot.log
 frontend_boot.log
+telegram_boot.log
 
 # Claude Code / claude-flow local runtime state (never commit credentials/session data)
 .claude/.credentials.json

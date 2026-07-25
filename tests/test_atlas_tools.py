@@ -119,6 +119,41 @@ class TestAudioLoopClass:
             print(f"  ✓ {method}")
 
 
+class TestConnectionErrorClassification:
+    """Test _classify_connection_error so quota/auth failures don't silently loop."""
+
+    def test_quota_errors(self):
+        from atlas import AudioLoop
+        # The real 1011 message seen in production, plus other quota phrasings.
+        quota_msgs = [
+            "received 1011 (internal error) You exceeded your current quota, please check your plan and billing details.",
+            "429 RESOURCE_EXHAUSTED",
+            "Quota exceeded for quota metric",
+        ]
+        for m in quota_msgs:
+            assert AudioLoop._classify_connection_error(Exception(m)) == "quota", m
+
+    def test_auth_errors(self):
+        from atlas import AudioLoop
+        auth_msgs = [
+            "403 PERMISSION_DENIED: API key not valid",
+            "401 Unauthenticated",
+            "Invalid API key provided",
+        ]
+        for m in auth_msgs:
+            assert AudioLoop._classify_connection_error(Exception(m)) == "auth", m
+
+    def test_transient_errors(self):
+        from atlas import AudioLoop
+        transient_msgs = [
+            "Connection closed abnormally",
+            "received 1006 (connection closed abnormally)",
+            "Temporary failure in name resolution",
+        ]
+        for m in transient_msgs:
+            assert AudioLoop._classify_connection_error(Exception(m)) == "transient", m
+
+
 class TestFileOperations:
     """Test file operation handlers."""
     
