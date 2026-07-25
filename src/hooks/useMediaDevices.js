@@ -12,7 +12,21 @@ export function useMediaDevices() {
     const [selectedWebcamId, setSelectedWebcamId] = useState(() => localStorage.getItem('selectedWebcamId') || '');
 
     useEffect(() => {
-        navigator.mediaDevices.enumerateDevices().then(devs => {
+        const loadDevices = async () => {
+            // Device labels (and stable deviceIds) are blank/unreliable until
+            // mic+camera permission has been granted in this browsing context.
+            // Request it once upfront and immediately release the tracks, so
+            // enumerateDevices() below always resolves the real device the
+            // user picked instead of silently falling back to a wrong index
+            // on a fresh page load / reload.
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+                stream.getTracks().forEach(track => track.stop());
+            } catch (err) {
+                console.warn('Could not pre-authorize media devices (labels may be blank):', err);
+            }
+
+            const devs = await navigator.mediaDevices.enumerateDevices();
             const audioInputs = devs.filter(d => d.kind === 'audioinput');
             const audioOutputs = devs.filter(d => d.kind === 'audiooutput');
             const videoInputs = devs.filter(d => d.kind === 'videoinput');
@@ -37,7 +51,8 @@ export function useMediaDevices() {
             } else if (videoInputs.length > 0) {
                 setSelectedWebcamId(videoInputs[0].deviceId);
             }
-        });
+        };
+        loadDevices();
     }, []);
 
     useEffect(() => {

@@ -76,6 +76,8 @@ function App() {
     const audioContextRef = useRef(null);
     const analyserRef = useRef(null);
     const sourceRef = useRef(null);
+    const playbackAudioContextRef = useRef(null);
+    const nextPlayTimeRef = useRef(0);
     const animationFrameRef = useRef(null);
     const videoRef = useRef(null);
     const canvasRef = useRef(null);
@@ -125,7 +127,10 @@ function App() {
     }, [isConnected, isAuthenticated, socketConnected, micDevices, selectedMicId]);
 
     useEffect(() => {
-        socket.on('audio_data', (data) => setAiAudioData(data.data));
+        socket.on('audio_data', (data) => {
+            setAiAudioData(data.data);
+            playAudioChunk(data.data);
+        });
         socket.on('tool_confirmation_request', (data) => {
             console.log("Received Confirmation Request:", data);
             setConfirmationRequest(data);
@@ -217,6 +222,39 @@ function App() {
         if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
         if (sourceRef.current) sourceRef.current.disconnect();
         if (audioContextRef.current) audioContextRef.current.close();
+    };
+
+    // ATLAS's spoken responses arrive as raw PCM16 mono @ 24kHz (matches
+    // backend/atlas.py's RECEIVE_SAMPLE_RATE). Schedule each chunk back-to-back
+    // on a dedicated AudioContext so playback is gapless.
+    const playAudioChunk = (byteArray) => {
+        if (!byteArray || byteArray.length === 0) return;
+        try {
+            if (!playbackAudioContextRef.current) {
+                playbackAudioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            const ctx = playbackAudioContextRef.current;
+            if (ctx.state === 'suspended') {
+                ctx.resume();
+            }
+
+            const int16 = new Int16Array(new Uint8Array(byteArray).buffer);
+            const buffer = ctx.createBuffer(1, int16.length, 24000);
+            const channelData = buffer.getChannelData(0);
+            for (let i = 0; i < int16.length; i++) {
+                channelData[i] = int16[i] / 32768;
+            }
+
+            const source = ctx.createBufferSource();
+            source.buffer = buffer;
+            source.connect(ctx.destination);
+
+            const startAt = Math.max(ctx.currentTime, nextPlayTimeRef.current);
+            source.start(startAt);
+            nextPlayTimeRef.current = startAt + buffer.duration;
+        } catch (err) {
+            console.error("Error playing AI audio chunk:", err);
+        }
     };
 
     const startVideo = async () => {
