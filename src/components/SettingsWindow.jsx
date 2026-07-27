@@ -38,6 +38,7 @@ const SettingsWindow = ({
 }) => {
     const [permissions, setPermissions] = useState({});
     const [faceAuthEnabled, setFaceAuthEnabled] = useState(false);
+    const [wakeWordEnabled, setWakeWordEnabled] = useState(false);
 
     useEffect(() => {
         // Request initial permissions
@@ -51,6 +52,9 @@ const SettingsWindow = ({
                 if (typeof settings.face_auth_enabled !== 'undefined') {
                     setFaceAuthEnabled(settings.face_auth_enabled);
                     localStorage.setItem('face_auth_enabled', settings.face_auth_enabled);
+                }
+                if (typeof settings.wake_word_enabled !== 'undefined') {
+                    setWakeWordEnabled(settings.wake_word_enabled);
                 }
             }
         };
@@ -88,6 +92,12 @@ const SettingsWindow = ({
         socket.emit('update_settings', { camera_flipped: newVal });
     };
 
+    const toggleWakeWord = () => {
+        const newVal = !wakeWordEnabled;
+        setWakeWordEnabled(newVal); // Optimistic
+        socket.emit('update_settings', { wake_word_enabled: newVal });
+    };
+
     return (
         <div className="absolute top-20 right-10 bg-black/90 border border-cyan-500/50 p-4 rounded-lg z-50 w-80 backdrop-blur-xl shadow-[0_0_30px_rgba(6,182,212,0.2)]">
             <div className="flex justify-between items-center mb-4 border-b border-cyan-900/50 pb-2">
@@ -108,6 +118,17 @@ const SettingsWindow = ({
                     >
                         <div
                             className={`absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full transition-transform duration-200 ${faceAuthEnabled ? 'translate-x-4' : 'translate-x-0'}`}
+                        />
+                    </button>
+                </div>
+                <div className="flex items-center justify-between text-xs bg-gray-900/50 p-2 rounded border border-cyan-900/30 mt-2">
+                    <span className="text-cyan-100/80">Wake Word (&quot;hey jarvis&quot;)</span>
+                    <button
+                        onClick={toggleWakeWord}
+                        className={`relative w-8 h-4 rounded-full transition-colors duration-200 ${wakeWordEnabled ? 'bg-accent-magenta/80' : 'bg-gray-700'}`}
+                    >
+                        <div
+                            className={`absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full transition-transform duration-200 ${wakeWordEnabled ? 'translate-x-4' : 'translate-x-0'}`}
                         />
                     </button>
                 </div>

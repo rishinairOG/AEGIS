@@ -188,6 +188,28 @@ function App() {
         }
     }, [socket]);
 
+    // Offline wake word ("hey jarvis"): the backend only listens while no
+    // session is active, so a detection powers ATLAS on (or unmutes it).
+    // Separate effect with real deps so the handler never sees stale state.
+    useEffect(() => {
+        if (!socket) return;
+        const onWake = () => {
+            console.log('[WAKE] wake word detected');
+            addMessage('System', 'Wake word detected — waking up.');
+            if (!isConnected) {
+                const index = micDevices.findIndex(d => d.deviceId === selectedMicId);
+                socket.emit('start_audio', { device_index: index >= 0 ? index : null });
+                setIsConnected(true);
+                setIsMuted(false);
+            } else if (isMuted) {
+                socket.emit('resume_audio');
+                setIsMuted(false);
+            }
+        };
+        socket.on('wake_word', onWake);
+        return () => socket.off('wake_word', onWake);
+    }, [socket, isConnected, isMuted, micDevices, selectedMicId, addMessage]);
+
     // Start/Stop Mic Visualizer
     useEffect(() => {
         if (selectedMicId) {

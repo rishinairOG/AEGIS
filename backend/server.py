@@ -137,6 +137,45 @@ async def startup_event():
             logger.warning("Memory startup failed (continuing without): %s", e)
             app.memory = None
 
+    # Offline wake word (opt-in, disabled by default).
+    if app.settings.get("wake_word_enabled", False):
+        _start_wake_listener()
+
+
+def _start_wake_listener():
+    """Start the wake-word listener if not already running. Fires 'wake_word'
+    to the frontend on detection, which triggers the normal connect/unmute
+    flow. Safe to call repeatedly."""
+    if getattr(app, "wake_listener", None):
+        return
+    try:
+        from wake_word import WakeWordListener
+        main_loop = asyncio.get_event_loop()
+
+        def _on_wake(model_name, score):
+            # Called from the listener thread — hop back to the event loop.
+            asyncio.run_coroutine_threadsafe(
+                sio.emit('wake_word', {'model': model_name, 'score': score}),
+                main_loop,
+            )
+
+        app.wake_listener = WakeWordListener(on_detect=_on_wake)
+        app.wake_listener.start()
+        if app.wake_listener.available:
+            logger.info("Wake-word listener started.")
+        else:
+            app.wake_listener = None  # failed to load; keep it None
+    except Exception as e:
+        logger.warning("Wake-word startup failed (continuing without): %s", e)
+        app.wake_listener = None
+
+
+def _stop_wake_listener():
+    if getattr(app, "wake_listener", None):
+        app.wake_listener.stop()
+        app.wake_listener = None
+        logger.info("Wake-word listener stopped.")
+
 @web_app.get("/status")
 async def status():
     return {"status": "running", "service": "A.T.L.A.S. Backend"}
@@ -183,6 +222,9 @@ async def start_audio(sid, data=None):
             return
 
     logger.info("Starting Audio Loop...")
+    # Release the mic from the wake-word listener before the session grabs it.
+    if getattr(app, "wake_listener", None):
+        app.wake_listener.pause()
     device_index = None
     device_name = None
     if data:
@@ -366,6 +408,9 @@ async def stop_audio(sid):
         logger.info("Stopping Audio Loop")
         app.audio_loop = None
         await sio.emit('status', {'msg': 'A.T.L.A.S. Stopped'})
+    # Session over — resume listening for the wake word.
+    if getattr(app, "wake_listener", None):
+        app.wake_listener.resume()
 
 @sio.event
 async def pause_audio(sid):
@@ -406,6 +451,9 @@ async def shutdown(sid, data=None):
     if app.authenticator:
         logger.info("Stopping Authenticator...")
         app.authenticator.stop()
+    if getattr(app, "wake_listener", None):
+        logger.info("Stopping wake-word listener...")
+        app.wake_listener.stop()
     logger.info("Graceful shutdown complete. Terminating process...")
     os._exit(0)
 
@@ -938,6 +986,14 @@ async def update_settings(sid, data):
     if "camera_flipped" in data:
         app.settings["camera_flipped"] = data["camera_flipped"]
         logger.info("Camera flip set to: %s", data.get('camera_flipped'))
+
+    if "wake_word_enabled" in data:
+        app.settings["wake_word_enabled"] = bool(data["wake_word_enabled"])
+        # Start/stop the listener live so no restart is needed.
+        if app.settings["wake_word_enabled"]:
+            _start_wake_listener()
+        else:
+            _stop_wake_listener()
 
     save_settings()
     # Broadcast new full settings
