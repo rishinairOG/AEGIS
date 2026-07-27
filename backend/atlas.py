@@ -592,357 +592,281 @@ class AudioLoop:
             self.audio_in_queue.get_nowait()
 
     async def _process_tool_calls(self, response):
-        """Handle tool_call in response: confirmation, dispatch, send_tool_response."""
+        """Handle tool_call in response: confirm, dispatch to a _tool_<name>
+        handler, collect FunctionResponses, and send_tool_response.
+
+        Tools are dispatched by naming convention: a tool declared in
+        tool_registry.FUNCTION_DECLARATIONS as "foo" is executed by the method
+        self._tool_foo(fc). Adding a tool means writing one declaration + one
+        _tool_<name> method — no edits to this dispatch loop.
+
+        Each handler returns a response dict (wrapped in a FunctionResponse) or
+        None for fire-and-forget tools that need no reply.
+        """
         if not response.tool_call:
             return
         print("The tool was called")
         function_responses = []
         for fc in response.tool_call.function_calls:
-            if fc.name in ["generate_cad", "run_web_agent", "write_file", "read_directory", "read_file", "create_project", "switch_project", "list_projects", "list_smart_devices", "control_light", "discover_printers", "print_stl", "get_print_status", "iterate_cad"]:
-                prompt = fc.args.get("prompt", "") # Prompt is not present for all tools
-                # Check Permissions (Default to True if not set)
-                confirmation_required = self.permissions.get(fc.name, True)
-                request_id = None
-                if not confirmation_required:
-                    print(f"[ATLAS DEBUG] [TOOL] Permission check: '{fc.name}' -> AUTO-ALLOW")
-                    # Skip confirmation block and jump to execution
-                    pass
-                else:
-                    # Confirmation Logic
-                    if self.on_tool_confirmation:
-                        import uuid
-                        request_id = str(uuid.uuid4())
-                    print(f"[ATLAS DEBUG] [STOP] Requesting confirmation for '{fc.name}' (ID: {request_id})")
-                    future = asyncio.Future()
-                    self._pending_confirmations[request_id] = future
-                    self.on_tool_confirmation({
-                        "id": request_id, 
-                        "tool": fc.name, 
-                        "args": fc.args
-                    })
-                    try:
-                        # Wait for user response
-                        confirmed = await future
-                    finally:
-                        self._pending_confirmations.pop(request_id, None)
+            handler = getattr(self, f"_tool_{fc.name}", None)
+            if handler is None:
+                print(f"[ATLAS DEBUG] [TOOL] No handler for tool '{fc.name}' — ignoring.")
+                continue
 
-                    print(f"[ATLAS DEBUG] [CONFIRM] Request {request_id} resolved. Confirmed: {confirmed}")
+            if not await self._confirm_tool(fc, function_responses):
+                continue  # denied; _confirm_tool appended the denial response
 
-                    if not confirmed:
-                        print(f"[ATLAS DEBUG] [DENY] Tool call '{fc.name}' denied by user.")
-                        function_response = types.FunctionResponse(
-                            id=fc.id,
-                            name=fc.name,
-                            response={
-                                "result": "User denied the request to use this tool.",
-                            }
-                        )
-                        function_responses.append(function_response)
-                        continue
+            try:
+                result = await handler(fc)
+            except Exception as e:
+                print(f"[ATLAS DEBUG] [ERR] Tool '{fc.name}' raised: {e}")
+                traceback.print_exc()
+                result = {"result": f"Tool '{fc.name}' failed: {e}"}
 
-                # If confirmed (or no callback configured, or auto-allowed), proceed
-                if fc.name == "generate_cad":
-                    print(f"\n[ATLAS DEBUG] --------------------------------------------------")
-                    print(f"[ATLAS DEBUG] [TOOL] Tool Call Detected: 'generate_cad'")
-                    print(f"[ATLAS DEBUG] [IN] Arguments: prompt='{prompt}'")
-                    asyncio.create_task(self.handle_cad_request(prompt))
-                    # No function response needed - model already acknowledged when user asked
-                elif fc.name == "run_web_agent":
-                    print(f"[ATLAS DEBUG] [TOOL] Tool Call: 'run_web_agent' with prompt='{prompt}'")
-                    asyncio.create_task(self.handle_web_agent_request(prompt))
-                    result_text = "Web Navigation started. Do not reply to this message."
-                    function_response = types.FunctionResponse(
-                        id=fc.id,
-                        name=fc.name,
-                        response={
-                            "result": result_text,
-                        }
-                    )
-                    print(f"[ATLAS DEBUG] [RESPONSE] Sending function response: {function_response}")
-                    function_responses.append(function_response)
+            if result is not None:
+                function_responses.append(
+                    types.FunctionResponse(id=fc.id, name=fc.name, response=result)
+                )
 
-
-
-                elif fc.name == "write_file":
-                    path = fc.args["path"]
-                    content = fc.args["content"]
-                    print(f"[ATLAS DEBUG] [TOOL] Tool Call: 'write_file' path='{path}'")
-                    asyncio.create_task(self.handle_write_file(path, content))
-                    function_response = types.FunctionResponse(
-                        id=fc.id, name=fc.name, response={"result": "Writing file..."}
-                    )
-                    function_responses.append(function_response)
-
-                elif fc.name == "read_directory":
-                    path = fc.args["path"]
-                    print(f"[ATLAS DEBUG] [TOOL] Tool Call: 'read_directory' path='{path}'")
-                    asyncio.create_task(self.handle_read_directory(path))
-                    function_response = types.FunctionResponse(
-                        id=fc.id, name=fc.name, response={"result": "Reading directory..."}
-                    )
-                    function_responses.append(function_response)
-
-                elif fc.name == "read_file":
-                    path = fc.args["path"]
-                    print(f"[ATLAS DEBUG] [TOOL] Tool Call: 'read_file' path='{path}'")
-                    asyncio.create_task(self.handle_read_file(path))
-                    function_response = types.FunctionResponse(
-                        id=fc.id, name=fc.name, response={"result": "Reading file..."}
-                    )
-                    function_responses.append(function_response)
-
-                elif fc.name == "create_project":
-                    name = fc.args["name"]
-                    print(f"[ATLAS DEBUG] [TOOL] Tool Call: 'create_project' name='{name}'")
-                    success, msg = self.project_manager.create_project(name)
-                    if success:
-                        # Auto-switch to the newly created project
-                        self.project_manager.switch_project(name)
-                        msg += f" Switched to '{name}'."
-                        if self.on_project_update:
-                            self.on_project_update(name)
-                    function_response = types.FunctionResponse(
-                        id=fc.id, name=fc.name, response={"result": msg}
-                    )
-                    function_responses.append(function_response)
-
-                elif fc.name == "switch_project":
-                    name = fc.args["name"]
-                    print(f"[ATLAS DEBUG] [TOOL] Tool Call: 'switch_project' name='{name}'")
-                    success, msg = self.project_manager.switch_project(name)
-                    if success:
-                        if self.on_project_update:
-                            self.on_project_update(name)
-                        # Gather project context and send to AI (silently, no response expected)
-                        context = self.project_manager.get_project_context()
-                        print(f"[ATLAS DEBUG] [PROJECT] Sending project context to AI ({len(context)} chars)")
-                        try:
-                            await self.session.send(input=f"System Notification: {msg}\n\n{context}", end_of_turn=False)
-                        except Exception as e:
-                            print(f"[ATLAS DEBUG] [ERR] Failed to send project context: {e}")
-                    function_response = types.FunctionResponse(
-                        id=fc.id, name=fc.name, response={"result": msg}
-                    )
-                    function_responses.append(function_response)
-
-                elif fc.name == "list_projects":
-                    print(f"[ATLAS DEBUG] [TOOL] Tool Call: 'list_projects'")
-                    projects = self.project_manager.list_projects()
-                    function_response = types.FunctionResponse(
-                        id=fc.id, name=fc.name, response={"result": f"Available projects: {', '.join(projects)}"}
-                    )
-                    function_responses.append(function_response)
-
-                elif fc.name == "list_smart_devices":
-                    print(f"[ATLAS DEBUG] [TOOL] Tool Call: 'list_smart_devices'")
-                    # Use cached devices directly for speed
-                    # devices_dict is {ip: Device}
-                    dev_summaries = []
-                    frontend_list = []
-                    for ip, d in self.kasa_agent.devices.items():
-                        dev_type = "unknown"
-                        if d.is_bulb: dev_type = "bulb"
-                        elif d.is_plug: dev_type = "plug"
-                        elif d.is_strip: dev_type = "strip"
-                        elif d.is_dimmer: dev_type = "dimmer"
-                        # Format for Model
-                        info = f"{d.alias} (IP: {ip}, Type: {dev_type})"
-                        if d.is_on:
-                            info += " [ON]"
-                        else:
-                            info += " [OFF]"
-                        dev_summaries.append(info)
-                        # Format for Frontend
-                        frontend_list.append({
-                            "ip": ip,
-                            "alias": d.alias,
-                            "model": d.model,
-                            "type": dev_type,
-                            "is_on": d.is_on,
-                            "brightness": d.brightness if d.is_bulb or d.is_dimmer else None,
-                            "hsv": d.hsv if d.is_bulb and d.is_color else None,
-                            "has_color": d.is_color if d.is_bulb else False,
-                            "has_brightness": d.is_dimmable if d.is_bulb or d.is_dimmer else False
-                        })
-                    result_str = "No devices found in cache."
-                    if dev_summaries:
-                        result_str = "Found Devices (Cached):\n" + "\n".join(dev_summaries)
-                    # Trigger frontend update
-                    if self.on_device_update:
-                        self.on_device_update(frontend_list)
-
-                    function_response = types.FunctionResponse(
-                        id=fc.id, name=fc.name, response={"result": result_str}
-                    )
-                    function_responses.append(function_response)
-
-                elif fc.name == "control_light":
-                    target = fc.args["target"]
-                    action = fc.args["action"]
-                    brightness = fc.args.get("brightness")
-                    color = fc.args.get("color")
-                    print(f"[ATLAS DEBUG] [TOOL] Tool Call: 'control_light' Target='{target}' Action='{action}'")
-                    result_msg = f"Action '{action}' on '{target}' failed."
-                    success = False
-                    if action == "turn_on":
-                        success = await self.kasa_agent.turn_on(target)
-                        if success:
-                            result_msg = f"Turned ON '{target}'."
-                    elif action == "turn_off":
-                        success = await self.kasa_agent.turn_off(target)
-                        if success:
-                            result_msg = f"Turned OFF '{target}'."
-                    elif action == "set":
-                        success = True
-                        result_msg = f"Updated '{target}':"
-                    # Apply extra attributes if 'set' or if we just turned it on and want to set them too
-                    if success or action == "set":
-                        if brightness is not None:
-                            sb = await self.kasa_agent.set_brightness(target, brightness)
-                            if sb:
-                                result_msg += f" Set brightness to {brightness}."
-                        if color is not None:
-                            sc = await self.kasa_agent.set_color(target, color)
-                            if sc:
-                                result_msg += f" Set color to {color}."
-
-                    # Notify Frontend of State Change
-                    if success:
-                        # We don't need full discovery, just refresh known state or push update
-                        # But for simplicity, let's get the standard list representation
-                        # KasaAgent updates its internal state on control, so we can rebuild the list
-                        # Quick rebuild of list from internal dict
-                        updated_list = []
-                        for ip, dev in self.kasa_agent.devices.items():
-                            # We need to ensure we have the correct dict structure expected by frontend
-                            # We duplicate logic from KasaAgent.discover_devices a bit, but that's okay for now or we can add a helper
-                            # Ideally KasaAgent has a 'get_devices_list()' method.
-                            # Use the cached objects in self.kasa_agent.devices
-                            dev_type = "unknown"
-                            if dev.is_bulb: dev_type = "bulb"
-                            elif dev.is_plug: dev_type = "plug"
-                            elif dev.is_strip: dev_type = "strip"
-                            elif dev.is_dimmer: dev_type = "dimmer"
-
-                            d_info = {
-                                "ip": ip,
-                                "alias": dev.alias,
-                                "model": dev.model,
-                                "type": dev_type,
-                                "is_on": dev.is_on,
-                                "brightness": dev.brightness if dev.is_bulb or dev.is_dimmer else None,
-                                "hsv": dev.hsv if dev.is_bulb and dev.is_color else None,
-                                "has_color": dev.is_color if dev.is_bulb else False,
-                                "has_brightness": dev.is_dimmable if dev.is_bulb or dev.is_dimmer else False
-                            }
-                            updated_list.append(d_info)
-                        if self.on_device_update:
-                            self.on_device_update(updated_list)
-                    else:
-                        # Report Error
-                        if self.on_error:
-                            self.on_error(result_msg)
-
-                    function_response = types.FunctionResponse(
-                        id=fc.id, name=fc.name, response={"result": result_msg}
-                    )
-                    function_responses.append(function_response)
-
-                elif fc.name == "discover_printers":
-                    print(f"[ATLAS DEBUG] [TOOL] Tool Call: 'discover_printers'")
-                    printers = await self.printer_agent.discover_printers()
-                    # Format for model
-                    if printers:
-                        printer_list = []
-                        for p in printers:
-                            printer_list.append(f"{p['name']} ({p['host']}:{p['port']}, type: {p['printer_type']})")
-                        result_str = "Found Printers:\n" + "\n".join(printer_list)
-                    else:
-                        result_str = "No printers found on network. Ensure printers are on and running OctoPrint/Moonraker."
-                    function_response = types.FunctionResponse(
-                        id=fc.id, name=fc.name, response={"result": result_str}
-                    )
-                    function_responses.append(function_response)
-
-                elif fc.name == "print_stl":
-                    stl_path = fc.args["stl_path"]
-                    printer = fc.args["printer"]
-                    profile = fc.args.get("profile")
-                    print(f"[ATLAS DEBUG] [TOOL] Tool Call: 'print_stl' STL='{stl_path}' Printer='{printer}'")
-                    # Resolve 'current' to project STL
-                    if stl_path.lower() == "current":
-                        stl_path = "output.stl" # Let printer agent resolve it in root_path
-
-                    # Get current project path
-                    project_path = str(self.project_manager.get_current_project_path())
-                    result = await self.printer_agent.print_stl(
-                        stl_path, 
-                        printer, 
-                        profile, 
-                        root_path=project_path
-                    )
-                    result_str = result.get("message", "Unknown result")
-                    function_response = types.FunctionResponse(
-                        id=fc.id, name=fc.name, response={"result": result_str}
-                    )
-                    function_responses.append(function_response)
-
-                elif fc.name == "get_print_status":
-                    printer = fc.args["printer"]
-                    print(f"[ATLAS DEBUG] [TOOL] Tool Call: 'get_print_status' Printer='{printer}'")
-                    status = await self.printer_agent.get_print_status(printer)
-                    if status:
-                        result_str = f"Printer: {status.printer}\n"
-                        result_str += f"State: {status.state}\n"
-                        result_str += f"Progress: {status.progress_percent:.1f}%\n"
-                        if status.time_remaining:
-                            result_str += f"Time Remaining: {status.time_remaining}\n"
-                        if status.time_elapsed:
-                            result_str += f"Time Elapsed: {status.time_elapsed}\n"
-                        if status.filename:
-                            result_str += f"File: {status.filename}\n"
-                        if status.temperatures:
-                            temps = status.temperatures
-                            if "hotend" in temps:
-                                result_str += f"Hotend: {temps['hotend']['current']:.0f}°C / {temps['hotend']['target']:.0f}°C\n"
-                            if "bed" in temps:
-                                result_str += f"Bed: {temps['bed']['current']:.0f}°C / {temps['bed']['target']:.0f}°C"
-                    else:
-                        result_str = f"Could not get status for printer '{printer}'. Ensure it is discovered first."
-                    function_response = types.FunctionResponse(
-                        id=fc.id, name=fc.name, response={"result": result_str}
-                    )
-                    function_responses.append(function_response)
-
-                elif fc.name == "iterate_cad":
-                    prompt = fc.args["prompt"]
-                    print(f"[ATLAS DEBUG] [TOOL] Tool Call: 'iterate_cad' Prompt='{prompt}'")
-                    # Emit status
-                    if self.on_cad_status:
-                        self.on_cad_status("generating")
-                    # Get project cad folder path
-                    cad_output_dir = str(self.project_manager.get_current_project_path() / "cad")
-                    # Call CadAgent to iterate on the design
-                    cad_data = await self.cad_agent.iterate_prototype(prompt, output_dir=cad_output_dir)
-                    if cad_data:
-                        print(f"[ATLAS DEBUG] [OK] CadAgent iteration returned data successfully.")
-                        # Dispatch to frontend
-                        if self.on_cad_data:
-                            print(f"[ATLAS DEBUG] [SEND] Dispatching iterated CAD data to frontend...")
-                            self.on_cad_data(cad_data)
-                            print(f"[ATLAS DEBUG] [SENT] Dispatch complete.")
-                        # Save to Project
-                        self.project_manager.save_cad_artifact("output.stl", f"Iteration: {prompt}")
-                        result_str = f"Successfully iterated design: {prompt}. The updated 3D model is now displayed."
-                    else:
-                        print(f"[ATLAS DEBUG] [ERR] CadAgent iteration returned None.")
-                        result_str = f"Failed to iterate design with prompt: {prompt}"
-                    function_response = types.FunctionResponse(
-                        id=fc.id, name=fc.name, response={"result": result_str}
-                    )
-                    function_responses.append(function_response)
         if function_responses:
             await self.session.send_tool_response(function_responses=function_responses)
+
+    async def _confirm_tool(self, fc, function_responses):
+        """Permission/confirmation gate. Returns True if the tool may run,
+        False if it was denied (a denial FunctionResponse is appended)."""
+        # Permissions default to requiring confirmation if unset.
+        if not self.permissions.get(fc.name, True):
+            print(f"[ATLAS DEBUG] [TOOL] Permission check: '{fc.name}' -> AUTO-ALLOW")
+            return True
+        if not self.on_tool_confirmation:
+            # No UI to ask through — can't block on a confirmation, so allow.
+            return True
+
+        import uuid
+        request_id = str(uuid.uuid4())
+        print(f"[ATLAS DEBUG] [STOP] Requesting confirmation for '{fc.name}' (ID: {request_id})")
+        future = asyncio.Future()
+        self._pending_confirmations[request_id] = future
+        self.on_tool_confirmation({"id": request_id, "tool": fc.name, "args": fc.args})
+        try:
+            confirmed = await future
+        finally:
+            self._pending_confirmations.pop(request_id, None)
+
+        print(f"[ATLAS DEBUG] [CONFIRM] Request {request_id} resolved. Confirmed: {confirmed}")
+        if not confirmed:
+            print(f"[ATLAS DEBUG] [DENY] Tool call '{fc.name}' denied by user.")
+            function_responses.append(types.FunctionResponse(
+                id=fc.id, name=fc.name,
+                response={"result": "User denied the request to use this tool."},
+            ))
+            return False
+        return True
+
+    # --- Tool handlers (dispatched by name: tool "foo" -> _tool_foo) ---
+
+    async def _tool_generate_cad(self, fc):
+        prompt = fc.args.get("prompt", "")
+        print(f"\n[ATLAS DEBUG] --------------------------------------------------")
+        print(f"[ATLAS DEBUG] [TOOL] Tool Call Detected: 'generate_cad'")
+        print(f"[ATLAS DEBUG] [IN] Arguments: prompt='{prompt}'")
+        asyncio.create_task(self.handle_cad_request(prompt))
+        return None  # fire-and-forget; model already acknowledged when user asked
+
+    async def _tool_run_web_agent(self, fc):
+        prompt = fc.args.get("prompt", "")
+        print(f"[ATLAS DEBUG] [TOOL] Tool Call: 'run_web_agent' with prompt='{prompt}'")
+        asyncio.create_task(self.handle_web_agent_request(prompt))
+        return {"result": "Web Navigation started. Do not reply to this message."}
+
+    async def _tool_write_file(self, fc):
+        path = fc.args["path"]
+        content = fc.args["content"]
+        print(f"[ATLAS DEBUG] [TOOL] Tool Call: 'write_file' path='{path}'")
+        asyncio.create_task(self.handle_write_file(path, content))
+        return {"result": "Writing file..."}
+
+    async def _tool_read_directory(self, fc):
+        path = fc.args["path"]
+        print(f"[ATLAS DEBUG] [TOOL] Tool Call: 'read_directory' path='{path}'")
+        asyncio.create_task(self.handle_read_directory(path))
+        return {"result": "Reading directory..."}
+
+    async def _tool_read_file(self, fc):
+        path = fc.args["path"]
+        print(f"[ATLAS DEBUG] [TOOL] Tool Call: 'read_file' path='{path}'")
+        asyncio.create_task(self.handle_read_file(path))
+        return {"result": "Reading file..."}
+
+    async def _tool_create_project(self, fc):
+        name = fc.args["name"]
+        print(f"[ATLAS DEBUG] [TOOL] Tool Call: 'create_project' name='{name}'")
+        success, msg = self.project_manager.create_project(name)
+        if success:
+            # Auto-switch to the newly created project
+            self.project_manager.switch_project(name)
+            msg += f" Switched to '{name}'."
+            if self.on_project_update:
+                self.on_project_update(name)
+        return {"result": msg}
+
+    async def _tool_switch_project(self, fc):
+        name = fc.args["name"]
+        print(f"[ATLAS DEBUG] [TOOL] Tool Call: 'switch_project' name='{name}'")
+        success, msg = self.project_manager.switch_project(name)
+        if success:
+            if self.on_project_update:
+                self.on_project_update(name)
+            # Gather project context and send to AI (silently, no response expected)
+            context = self.project_manager.get_project_context()
+            print(f"[ATLAS DEBUG] [PROJECT] Sending project context to AI ({len(context)} chars)")
+            try:
+                await self.session.send(input=f"System Notification: {msg}\n\n{context}", end_of_turn=False)
+            except Exception as e:
+                print(f"[ATLAS DEBUG] [ERR] Failed to send project context: {e}")
+        return {"result": msg}
+
+    async def _tool_list_projects(self, fc):
+        print(f"[ATLAS DEBUG] [TOOL] Tool Call: 'list_projects'")
+        projects = self.project_manager.list_projects()
+        return {"result": f"Available projects: {', '.join(projects)}"}
+
+    def _kasa_device_dict(self, ip, dev):
+        """Build the frontend device dict for one Kasa device."""
+        dev_type = "unknown"
+        if dev.is_bulb: dev_type = "bulb"
+        elif dev.is_plug: dev_type = "plug"
+        elif dev.is_strip: dev_type = "strip"
+        elif dev.is_dimmer: dev_type = "dimmer"
+        return {
+            "ip": ip,
+            "alias": dev.alias,
+            "model": dev.model,
+            "type": dev_type,
+            "is_on": dev.is_on,
+            "brightness": dev.brightness if dev.is_bulb or dev.is_dimmer else None,
+            "hsv": dev.hsv if dev.is_bulb and dev.is_color else None,
+            "has_color": dev.is_color if dev.is_bulb else False,
+            "has_brightness": dev.is_dimmable if dev.is_bulb or dev.is_dimmer else False,
+        }
+
+    async def _tool_list_smart_devices(self, fc):
+        print(f"[ATLAS DEBUG] [TOOL] Tool Call: 'list_smart_devices'")
+        # Use cached devices directly for speed. devices_dict is {ip: Device}
+        dev_summaries = []
+        frontend_list = []
+        for ip, d in self.kasa_agent.devices.items():
+            info = self._kasa_device_dict(ip, d)
+            summary = f"{d.alias} (IP: {ip}, Type: {info['type']})"
+            summary += " [ON]" if d.is_on else " [OFF]"
+            dev_summaries.append(summary)
+            frontend_list.append(info)
+        result_str = "No devices found in cache."
+        if dev_summaries:
+            result_str = "Found Devices (Cached):\n" + "\n".join(dev_summaries)
+        if self.on_device_update:
+            self.on_device_update(frontend_list)
+        return {"result": result_str}
+
+    async def _tool_control_light(self, fc):
+        target = fc.args["target"]
+        action = fc.args["action"]
+        brightness = fc.args.get("brightness")
+        color = fc.args.get("color")
+        print(f"[ATLAS DEBUG] [TOOL] Tool Call: 'control_light' Target='{target}' Action='{action}'")
+        result_msg = f"Action '{action}' on '{target}' failed."
+        success = False
+        if action == "turn_on":
+            success = await self.kasa_agent.turn_on(target)
+            if success:
+                result_msg = f"Turned ON '{target}'."
+        elif action == "turn_off":
+            success = await self.kasa_agent.turn_off(target)
+            if success:
+                result_msg = f"Turned OFF '{target}'."
+        elif action == "set":
+            success = True
+            result_msg = f"Updated '{target}':"
+        # Apply extra attributes if 'set' or if we just turned it on
+        if success or action == "set":
+            if brightness is not None:
+                if await self.kasa_agent.set_brightness(target, brightness):
+                    result_msg += f" Set brightness to {brightness}."
+            if color is not None:
+                if await self.kasa_agent.set_color(target, color):
+                    result_msg += f" Set color to {color}."
+
+        # Notify frontend of state change
+        if success:
+            if self.on_device_update:
+                self.on_device_update([self._kasa_device_dict(ip, dev) for ip, dev in self.kasa_agent.devices.items()])
+        else:
+            if self.on_error:
+                self.on_error(result_msg)
+        return {"result": result_msg}
+
+    async def _tool_discover_printers(self, fc):
+        print(f"[ATLAS DEBUG] [TOOL] Tool Call: 'discover_printers'")
+        printers = await self.printer_agent.discover_printers()
+        if printers:
+            lines = [f"{p['name']} ({p['host']}:{p['port']}, type: {p['printer_type']})" for p in printers]
+            result_str = "Found Printers:\n" + "\n".join(lines)
+        else:
+            result_str = "No printers found on network. Ensure printers are on and running OctoPrint/Moonraker."
+        return {"result": result_str}
+
+    async def _tool_print_stl(self, fc):
+        stl_path = fc.args["stl_path"]
+        printer = fc.args["printer"]
+        profile = fc.args.get("profile")
+        print(f"[ATLAS DEBUG] [TOOL] Tool Call: 'print_stl' STL='{stl_path}' Printer='{printer}'")
+        # Resolve 'current' to project STL
+        if stl_path.lower() == "current":
+            stl_path = "output.stl"  # Let printer agent resolve it in root_path
+        project_path = str(self.project_manager.get_current_project_path())
+        result = await self.printer_agent.print_stl(stl_path, printer, profile, root_path=project_path)
+        return {"result": result.get("message", "Unknown result")}
+
+    async def _tool_get_print_status(self, fc):
+        printer = fc.args["printer"]
+        print(f"[ATLAS DEBUG] [TOOL] Tool Call: 'get_print_status' Printer='{printer}'")
+        status = await self.printer_agent.get_print_status(printer)
+        if not status:
+            return {"result": f"Could not get status for printer '{printer}'. Ensure it is discovered first."}
+        result_str = f"Printer: {status.printer}\n"
+        result_str += f"State: {status.state}\n"
+        result_str += f"Progress: {status.progress_percent:.1f}%\n"
+        if status.time_remaining:
+            result_str += f"Time Remaining: {status.time_remaining}\n"
+        if status.time_elapsed:
+            result_str += f"Time Elapsed: {status.time_elapsed}\n"
+        if status.filename:
+            result_str += f"File: {status.filename}\n"
+        if status.temperatures:
+            temps = status.temperatures
+            if "hotend" in temps:
+                result_str += f"Hotend: {temps['hotend']['current']:.0f}°C / {temps['hotend']['target']:.0f}°C\n"
+            if "bed" in temps:
+                result_str += f"Bed: {temps['bed']['current']:.0f}°C / {temps['bed']['target']:.0f}°C"
+        return {"result": result_str}
+
+    async def _tool_iterate_cad(self, fc):
+        prompt = fc.args["prompt"]
+        print(f"[ATLAS DEBUG] [TOOL] Tool Call: 'iterate_cad' Prompt='{prompt}'")
+        if self.on_cad_status:
+            self.on_cad_status("generating")
+        cad_output_dir = str(self.project_manager.get_current_project_path() / "cad")
+        cad_data = await self.cad_agent.iterate_prototype(prompt, output_dir=cad_output_dir)
+        if cad_data:
+            print(f"[ATLAS DEBUG] [OK] CadAgent iteration returned data successfully.")
+            if self.on_cad_data:
+                print(f"[ATLAS DEBUG] [SEND] Dispatching iterated CAD data to frontend...")
+                self.on_cad_data(cad_data)
+                print(f"[ATLAS DEBUG] [SENT] Dispatch complete.")
+            self.project_manager.save_cad_artifact("output.stl", f"Iteration: {prompt}")
+            return {"result": f"Successfully iterated design: {prompt}. The updated 3D model is now displayed."}
+        print(f"[ATLAS DEBUG] [ERR] CadAgent iteration returned None.")
+        return {"result": f"Failed to iterate design with prompt: {prompt}"}
 
     def _record_usage(self, response):
         """Fold Live API usage_metadata into the tracker and emit a throttled summary."""

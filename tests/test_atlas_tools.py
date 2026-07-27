@@ -154,6 +154,65 @@ class TestConnectionErrorClassification:
             assert AudioLoop._classify_connection_error(Exception(m)) == "transient", m
 
 
+class TestToolDispatch:
+    """The registry refactor: tools dispatch by naming convention _tool_<name>."""
+
+    def test_every_declared_tool_has_a_handler(self):
+        from atlas import AudioLoop
+        from tool_registry import FUNCTION_DECLARATIONS
+        missing = [d["name"] for d in FUNCTION_DECLARATIONS if not hasattr(AudioLoop, f"_tool_{d['name']}")]
+        assert not missing, f"declared tools with no _tool_ handler: {missing}"
+
+    def test_no_orphan_handlers(self):
+        # Every _tool_<name> method should correspond to a declared tool
+        # (helper methods like _tool_control_light are fine; _kasa_device_dict
+        # is deliberately NOT named _tool_*).
+        from atlas import AudioLoop
+        from tool_registry import FUNCTION_DECLARATIONS
+        declared = {d["name"] for d in FUNCTION_DECLARATIONS}
+        handlers = {n[len("_tool_"):] for n in dir(AudioLoop) if n.startswith("_tool_")}
+        orphans = handlers - declared
+        assert not orphans, f"_tool_ methods with no matching declaration: {orphans}"
+
+    @pytest.mark.asyncio
+    async def test_list_projects_handler(self):
+        from types import SimpleNamespace
+        from atlas import AudioLoop
+        fake_self = SimpleNamespace(project_manager=SimpleNamespace(list_projects=lambda: ["a", "b"]))
+        result = await AudioLoop._tool_list_projects(fake_self, SimpleNamespace(args={}))
+        assert result == {"result": "Available projects: a, b"}
+
+    @pytest.mark.asyncio
+    async def test_generate_cad_is_fire_and_forget(self):
+        import asyncio
+        from types import SimpleNamespace
+        from atlas import AudioLoop
+        called = {}
+        async def fake_handle(prompt):
+            called["prompt"] = prompt
+        fake_self = SimpleNamespace(handle_cad_request=fake_handle)
+        result = await AudioLoop._tool_generate_cad(fake_self, SimpleNamespace(args={"prompt": "a cube"}))
+        await asyncio.sleep(0)  # let the created task run
+        assert result is None  # no FunctionResponse for fire-and-forget
+        assert called.get("prompt") == "a cube"
+
+    @pytest.mark.asyncio
+    async def test_confirm_auto_allows_when_permission_disabled(self):
+        from types import SimpleNamespace
+        from atlas import AudioLoop
+        fake_self = SimpleNamespace(permissions={"control_light": False}, on_tool_confirmation=lambda x: None)
+        ok = await AudioLoop._confirm_tool(fake_self, SimpleNamespace(name="control_light", id="1", args={}), [])
+        assert ok is True
+
+    @pytest.mark.asyncio
+    async def test_confirm_allows_when_no_confirmation_ui(self):
+        from types import SimpleNamespace
+        from atlas import AudioLoop
+        fake_self = SimpleNamespace(permissions={}, on_tool_confirmation=None)
+        ok = await AudioLoop._confirm_tool(fake_self, SimpleNamespace(name="write_file", id="1", args={}), [])
+        assert ok is True
+
+
 class TestAgentUsageRecording:
     """record_agent_usage folds CAD/web agent usage into the shared tracker + emits."""
 
