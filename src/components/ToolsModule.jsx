@@ -1,5 +1,5 @@
 import React from 'react';
-import { Mic, MicOff, Settings, Power, Video, VideoOff, Hand, Lightbulb, Printer, Globe, Box } from 'lucide-react';
+import { Mic, MicOff, Settings, Power, Video, VideoOff, Hand, Lightbulb, Printer, Globe, Box, Brain } from 'lucide-react';
 
 const ToolsModule = ({
     isConnected,
@@ -21,6 +21,8 @@ const ToolsModule = ({
     showCadWindow,
     onToggleBrowser,
     showBrowserWindow,
+    onToggleMemory,
+    showMemoryWindow,
     activeDragElement,
 
     position,
@@ -142,6 +144,17 @@ const ToolsModule = ({
                         } `}
                 >
                     <Globe size={24} />
+                </button>
+
+                {/* Memory Browser Toggle */}
+                <button
+                    onClick={onToggleMemory}
+                    className={`p-3 rounded-full border-2 transition-all duration-300 ${showMemoryWindow
+                        ? 'border-accent-magenta bg-accent-magenta/10 text-accent-magenta hover:bg-accent-magenta/20 shadow-[0_0_15px_rgba(217,70,239,0.3)]'
+                        : 'border-cyan-900 text-cyan-700 hover:border-accent-magenta hover:text-accent-magenta'
+                        } `}
+                >
+                    <Brain size={24} />
                 </button>
             </div>
         </div>

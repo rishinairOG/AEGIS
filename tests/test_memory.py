@@ -68,6 +68,64 @@ class TestAtlasMemoryWithoutService:
         m = AtlasMemory()
         await m.stop()  # should not raise
 
+    @pytest.mark.asyncio
+    async def test_list_recent_empty_when_no_service(self, no_api_key):
+        from memory import AtlasMemory
+        m = AtlasMemory()
+        assert await m.list_recent() == []
+
+    @pytest.mark.asyncio
+    async def test_stats_empty_when_no_service(self, no_api_key):
+        from memory import AtlasMemory
+        m = AtlasMemory()
+        assert await m.stats() == {}
+
+    @pytest.mark.asyncio
+    async def test_self_traits_empty_when_no_service(self, no_api_key):
+        from memory import AtlasMemory
+        m = AtlasMemory()
+        assert await m.self_traits() == {}
+
+
+class TestAtlasMemoryExplorerWithFakeService:
+    """list_recent/stats/self_traits delegate to the service and survive errors."""
+
+    @pytest.mark.asyncio
+    async def test_delegates_to_service(self, monkeypatch):
+        from memory import AtlasMemory
+        m = AtlasMemory()
+
+        class FakeService:
+            def list_interactions(self, user_id, limit):
+                return [{"user": "hi", "assistant": "hello"}]
+            def get_stats(self, user_id):
+                return {"interactions": 1}
+            def get_self_traits_for_explorer(self, user_id):
+                return {"likes": ["coffee"]}
+
+        m.service = FakeService()
+        assert (await m.list_recent())[0]["assistant"] == "hello"
+        assert (await m.stats())["interactions"] == 1
+        assert (await m.self_traits())["likes"] == ["coffee"]
+
+    @pytest.mark.asyncio
+    async def test_swallows_service_errors(self):
+        from memory import AtlasMemory
+        m = AtlasMemory()
+
+        class BoomService:
+            def list_interactions(self, *a, **k):
+                raise RuntimeError("db down")
+            def get_stats(self, *a, **k):
+                raise RuntimeError("db down")
+            def get_self_traits_for_explorer(self, *a, **k):
+                raise RuntimeError("db down")
+
+        m.service = BoomService()
+        assert await m.list_recent() == []
+        assert await m.stats() == {}
+        assert await m.self_traits() == {}
+
 
 class TestAtlasMemoryStart:
     """start() with no key or missing hippomem should not crash."""

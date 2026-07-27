@@ -3,6 +3,7 @@ ATLAS wrapper for HippoMem — brain-inspired persistent memory for LLM chat.
 Uses Gemini's OpenAI-compatible endpoint; no separate API key required.
 """
 import os
+import asyncio
 import logging
 from typing import Optional
 
@@ -122,6 +123,38 @@ class AtlasMemory:
             )
         except Exception as e:
             logger.exception("AtlasMemory remember failed: %s", e)
+
+    async def list_recent(self, limit: int = 40) -> list:
+        """Browse recent stored interactions (for the memory UI). Returns [] if
+        memory is disabled. HippoMem's explorer methods are synchronous DB
+        reads, so run them off the event loop."""
+        if not self.service:
+            return []
+        try:
+            return await asyncio.to_thread(self.service.list_interactions, USER_ID, limit)
+        except Exception as e:
+            logger.exception("AtlasMemory list_recent failed: %s", e)
+            return []
+
+    async def stats(self) -> dict:
+        """Summary counts about what's stored (for the memory UI)."""
+        if not self.service:
+            return {}
+        try:
+            return await asyncio.to_thread(self.service.get_stats, USER_ID)
+        except Exception as e:
+            logger.exception("AtlasMemory stats failed: %s", e)
+            return {}
+
+    async def self_traits(self) -> dict:
+        """What ATLAS has inferred about the user (for the memory UI)."""
+        if not self.service:
+            return {}
+        try:
+            return await asyncio.to_thread(self.service.get_self_traits_for_explorer, USER_ID)
+        except Exception as e:
+            logger.exception("AtlasMemory self_traits failed: %s", e)
+            return {}
 
     async def stop(self) -> None:
         """Run consolidation and close the service."""

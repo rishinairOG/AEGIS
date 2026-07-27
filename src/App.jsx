@@ -30,6 +30,7 @@ import AuthLock from './components/AuthLock';
 import KasaWindow from './components/KasaWindow';
 import PrinterWindow from './components/PrinterWindow';
 import SettingsWindow from './components/SettingsWindow';
+import MemoryWindow from './components/MemoryWindow';
 
 
 
@@ -68,6 +69,7 @@ function App() {
     const [currentTime, setCurrentTime] = useState(new Date());
     const [aiAudioData, setAiAudioData] = useState(new Array(64).fill(0));
     const [usage, setUsage] = useState(null);
+    const [showMemoryWindow, setShowMemoryWindow] = useState(false);
     const [micAudioData, setMicAudioData] = useState(new Array(32).fill(0));
     const [fps, setFps] = useState(0);
     const [showSettings, setShowSettings] = useState(false);
@@ -1008,6 +1010,8 @@ function App() {
                         showCadWindow={showCadWindow}
                         onToggleBrowser={() => setShowBrowserWindow(!showBrowserWindow)}
                         showBrowserWindow={showBrowserWindow}
+                        onToggleMemory={() => setShowMemoryWindow(!showMemoryWindow)}
+                        showMemoryWindow={showMemoryWindow}
                         activeDragElement={activeDragElement}
                         position={elementPositions.tools}
                         onMouseDown={(e) => handleMouseDown(e, 'tools')}
@@ -1041,7 +1045,17 @@ function App() {
                     />
                 )}
 
-                {/* Memory Prompt removed - memory is now actively saved to project */}
+                {/* Memory Browser Window */}
+                {showMemoryWindow && (
+                    <MemoryWindow
+                        socket={socket}
+                        onClose={() => setShowMemoryWindow(false)}
+                        position={elementPositions.memory}
+                        onMouseDown={(e) => handleMouseDown(e, 'memory')}
+                        activeDragElement={activeDragElement}
+                        zIndex={getZIndex('memory')}
+                    />
+                )}
 
                 {/* Tool Confirmation Modal */}
                 <ConfirmationPopup

@@ -8,6 +8,7 @@ const DEFAULT_POSITIONS = {
     browser: { x: 0, y: 0 },
     kasa: { x: 0, y: 0 },
     printer: { x: 0, y: 0 },
+    memory: { x: 0, y: 0 },
     tools: { x: 0, y: 0 }
 };
 
@@ -19,7 +20,8 @@ const DEFAULT_SIZES = {
     browser: { w: 550, h: 380 },
     video: { w: 320, h: 180 },
     kasa: { w: 300, h: 380 },
-    printer: { w: 380, h: 380 }
+    printer: { w: 380, h: 380 },
+    memory: { w: 420, h: 440 }
 };
 
 /**
@@ -34,10 +36,11 @@ export function useModularLayout() {
         browser: { x: (typeof window !== 'undefined' ? window.innerWidth : 800) / 2 - 300, y: (typeof window !== 'undefined' ? window.innerHeight : 600) / 2 },
         kasa: { x: (typeof window !== 'undefined' ? window.innerWidth : 800) / 2 + 350, y: (typeof window !== 'undefined' ? window.innerHeight : 600) / 2 - 100 },
         printer: { x: (typeof window !== 'undefined' ? window.innerWidth : 800) / 2 - 350, y: (typeof window !== 'undefined' ? window.innerHeight : 600) / 2 - 100 },
+        memory: { x: (typeof window !== 'undefined' ? window.innerWidth : 800) / 2, y: (typeof window !== 'undefined' ? window.innerHeight : 600) / 2 - 50 },
         tools: { x: (typeof window !== 'undefined' ? window.innerWidth : 800) / 2, y: (typeof window !== 'undefined' ? window.innerHeight : 600) - 100 }
     }));
     const [elementSizes, setElementSizes] = useState(DEFAULT_SIZES);
-    const [zIndexOrder, setZIndexOrder] = useState(['visualizer', 'chat', 'tools', 'video', 'cad', 'browser', 'kasa', 'printer']);
+    const [zIndexOrder, setZIndexOrder] = useState(['visualizer', 'chat', 'tools', 'video', 'cad', 'browser', 'kasa', 'printer', 'memory']);
     const [activeDragElement, setActiveDragElement] = useState(null);
     const [isModularMode, setIsModularMode] = useState(false);
     const elementPositionsRef = useRef(elementPositions);

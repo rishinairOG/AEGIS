@@ -885,6 +885,37 @@ async def get_settings(sid):
     await sio.emit('settings', app.settings)
 
 @sio.event
+async def memory_fetch(sid):
+    """Send the memory browser its data: recent interactions, stats, traits."""
+    memory = getattr(app, "memory", None)
+    if not memory or not getattr(memory, "service", None):
+        await sio.emit('memory_data', {'enabled': False, 'interactions': [], 'stats': {}, 'traits': {}})
+        return
+    interactions = await memory.list_recent(limit=40)
+    stats = await memory.stats()
+    traits = await memory.self_traits()
+    await sio.emit('memory_data', {
+        'enabled': True,
+        'interactions': interactions,
+        'stats': stats,
+        'traits': traits,
+    })
+
+@sio.event
+async def memory_search(sid, data):
+    """Semantic search over stored memory; returns a formatted context string."""
+    query = (data or {}).get('query', '').strip()
+    memory = getattr(app, "memory", None)
+    if not memory or not getattr(memory, "service", None) or not query:
+        await sio.emit('memory_search_result', {'query': query, 'context': ''})
+        return
+    context = await memory.recall(query)
+    await sio.emit('memory_search_result', {
+        'query': query,
+        'context': context or 'No relevant memories found for that query.',
+    })
+
+@sio.event
 async def update_settings(sid, data):
     # Generic update
     logger.info("Updating settings: %s", list(data.keys()) if data else [])
