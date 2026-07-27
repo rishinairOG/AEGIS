@@ -67,6 +67,7 @@ function App() {
     const [confirmationRequest, setConfirmationRequest] = useState(null);
     const [currentTime, setCurrentTime] = useState(new Date());
     const [aiAudioData, setAiAudioData] = useState(new Array(64).fill(0));
+    const [usage, setUsage] = useState(null);
     const [micAudioData, setMicAudioData] = useState(new Array(32).fill(0));
     const [fps, setFps] = useState(0);
     const [showSettings, setShowSettings] = useState(false);
@@ -135,6 +136,7 @@ function App() {
             console.log("Received Confirmation Request:", data);
             setConfirmationRequest(data);
         });
+        socket.on('usage_update', (data) => setUsage(data));
         socket.on('project_update', (data) => {
             console.log("Project Update:", data.project);
             setCurrentProject(data.project);
@@ -170,6 +172,7 @@ function App() {
         return () => {
             socket.off('audio_data');
             socket.off('tool_confirmation_request');
+            socket.off('usage_update');
             socket.off('project_update');
             stopMicVisualizer();
             stopVideo();
@@ -807,6 +810,18 @@ function App() {
                 </div>
 
                 <div className="flex items-center gap-2 pr-2" style={{ WebkitAppRegion: 'no-drag' }}>
+                    {/* Token / cost usage this session */}
+                    {usage && usage.total_tokens > 0 && (
+                        <div
+                            className="flex items-center gap-1.5 text-[10px] text-purple-300/80 border border-purple-500/30 bg-purple-500/10 px-2 py-0.5 rounded font-mono"
+                            title={`Session usage\nTokens: ${usage.total_tokens.toLocaleString()}\nEst. cost: $${usage.est_cost_usd.toFixed(4)}` + (usage.by_modality ? '\n' + Object.entries(usage.by_modality).map(([m, t]) => `  ${m}: ${t.toLocaleString()}`).join('\n') : '')}
+                        >
+                            <span>📊</span>
+                            <span>{usage.total_tokens >= 1000 ? `${(usage.total_tokens / 1000).toFixed(1)}K` : usage.total_tokens} tok</span>
+                            <span className="text-purple-400/60">·</span>
+                            <span>${usage.est_cost_usd < 0.01 ? usage.est_cost_usd.toFixed(4) : usage.est_cost_usd.toFixed(2)}</span>
+                        </div>
+                    )}
                     {/* Live Clock */}
                     <div className="flex items-center gap-1.5 text-[11px] text-cyan-300/70 font-mono px-2">
                         <Clock size={12} className="text-cyan-500/50" />

@@ -23,6 +23,7 @@ if sys.version_info < (3, 11, 0):
     asyncio.ExceptionGroup = exceptiongroup.ExceptionGroup
 
 from tool_registry import get_tools_for_gemini
+from usage_tracker import UsageTracker
 
 FORMAT = pyaudio.paInt16
 CHANNELS = 1
@@ -83,19 +84,23 @@ from kasa_agent import KasaAgent
 from printer_agent import PrinterAgent
 
 class AudioLoop:
-    def __init__(self, video_mode=DEFAULT_MODE, on_audio_data=None, on_video_frame=None, on_cad_data=None, on_web_data=None, on_transcription=None, on_tool_confirmation=None, on_cad_status=None, on_cad_thought=None, on_project_update=None, on_device_update=None, on_error=None, input_device_index=None, input_device_name=None, output_device_index=None, kasa_agent=None, memory=None):
+    def __init__(self, video_mode=DEFAULT_MODE, on_audio_data=None, on_video_frame=None, on_cad_data=None, on_web_data=None, on_transcription=None, on_tool_confirmation=None, on_cad_status=None, on_cad_thought=None, on_project_update=None, on_device_update=None, on_error=None, on_usage=None, input_device_index=None, input_device_name=None, output_device_index=None, kasa_agent=None, memory=None, usage_tracker=None):
         self.video_mode = video_mode
         self.on_audio_data = on_audio_data
         self.on_video_frame = on_video_frame
         self.on_cad_data = on_cad_data
         self.on_web_data = on_web_data
         self.on_transcription = on_transcription
-        self.on_tool_confirmation = on_tool_confirmation 
+        self.on_tool_confirmation = on_tool_confirmation
         self.on_cad_status = on_cad_status
         self.on_cad_thought = on_cad_thought
         self.on_project_update = on_project_update
         self.on_device_update = on_device_update
         self.on_error = on_error
+        self.on_usage = on_usage
+        # Shared across reconnects so the running session total survives them.
+        self.usage_tracker = usage_tracker if usage_tracker is not None else UsageTracker()
+        self._last_usage_emit = 0.0
         self.input_device_index = input_device_index
         self.input_device_name = input_device_name
         self.output_device_index = output_device_index
@@ -939,6 +944,18 @@ class AudioLoop:
         if function_responses:
             await self.session.send_tool_response(function_responses=function_responses)
 
+    def _record_usage(self, response):
+        """Fold Live API usage_metadata into the tracker and emit a throttled summary."""
+        um = getattr(response, "usage_metadata", None)
+        if um is None:
+            return
+        # Live API reports session-cumulative usage.
+        if self.usage_tracker.record(MODEL, um, cumulative=True) and self.on_usage:
+            now = time.time()
+            if now - self._last_usage_emit > 2.0:
+                self._last_usage_emit = now
+                self.on_usage(self.usage_tracker.summary())
+
     async def receive_audio(self):
         """Background task: read from the websocket and process audio, transcription, and tool calls."""
         try:
@@ -948,6 +965,7 @@ class AudioLoop:
                     self._push_audio_data(response)
                     self._process_transcription(response)
                     await self._process_tool_calls(response)
+                    self._record_usage(response)
                     self._finish_turn()
         except Exception as e:
             print(f"Error in receive_audio: {e}")

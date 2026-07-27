@@ -262,6 +262,10 @@ async def start_audio(sid, data=None):
         logger.warning("Sending error to frontend: %s", msg)
         asyncio.create_task(sio.emit('error', {'msg': msg}))
 
+    # Callback to send token/cost usage to frontend
+    def on_usage(summary):
+        asyncio.create_task(sio.emit('usage_update', summary))
+
     try:
         logger.info("Initializing AudioLoop with device_index=%s", device_index)
         app.audio_loop = atlas.AudioLoop(
@@ -276,6 +280,7 @@ async def start_audio(sid, data=None):
             on_project_update=on_project_update,
             on_device_update=on_device_update,
             on_error=on_error,
+            on_usage=on_usage,
             input_device_index=device_index,
             input_device_name=device_name,
             kasa_agent=app.kasa_agent,
