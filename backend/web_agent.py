@@ -20,13 +20,22 @@ SELECT_ALL_KEY = "Meta+A" if sys.platform == "darwin" else "Control+A"
 MODEL_ID = "gemini-2.5-computer-use-preview-10-2025"
 
 class WebAgent:
-    def __init__(self):
+    def __init__(self, on_usage=None):
         if not API_KEY:
             raise ValueError("Please set GEMINI_API_KEY in your .env file")
         self.client = genai.Client(api_key=API_KEY)
+        self.on_usage = on_usage  # Callback (model, usage_metadata) for token tracking
         self.browser = None
         self.context = None
         self.page = None
+
+    def _report_usage(self, usage_metadata):
+        """Report one-shot generate usage to the shared tracker, if wired."""
+        if usage_metadata is not None and self.on_usage:
+            try:
+                self.on_usage(MODEL_ID, usage_metadata)
+            except Exception as e:
+                print(f"[WebAgent] usage report failed: {e}")
 
     def denormalize_x(self, x: int, width: int) -> int:
         return int((x / 1000) * width)
@@ -247,7 +256,10 @@ class WebAgent:
                     print(f"[CRITICAL] Critical API Error: {e}")
                     if update_callback: await update_callback(None, f"Error: {e}")
                     break
-                
+
+                # Each computer-use turn is its own generate call (per-response usage).
+                self._report_usage(getattr(response, "usage_metadata", None))
+
                 # Check for empty response
                 if not response.candidates:
                     print("[WARN] Model returned no content.")

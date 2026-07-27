@@ -136,8 +136,8 @@ class AudioLoop:
             if self.on_cad_status:
                 self.on_cad_status(status_info)
         
-        self.cad_agent = CadAgent(on_thought=handle_cad_thought, on_status=handle_cad_status)
-        self.web_agent = WebAgent()
+        self.cad_agent = CadAgent(on_thought=handle_cad_thought, on_status=handle_cad_status, on_usage=self.record_agent_usage)
+        self.web_agent = WebAgent(on_usage=self.record_agent_usage)
         self.kasa_agent = kasa_agent if kasa_agent else KasaAgent()
         self.printer_agent = PrinterAgent()
 
@@ -955,6 +955,13 @@ class AudioLoop:
             if now - self._last_usage_emit > 2.0:
                 self._last_usage_emit = now
                 self.on_usage(self.usage_tracker.summary())
+
+    def record_agent_usage(self, model, usage_metadata):
+        """Fold one-shot CAD/web agent usage (per-response) into the shared
+        tracker and emit an update immediately (agent calls are infrequent, so
+        no throttling needed — the user should see CAD/web cost right away)."""
+        if self.usage_tracker.record(model, usage_metadata, cumulative=False) and self.on_usage:
+            self.on_usage(self.usage_tracker.summary())
 
     async def receive_audio(self):
         """Background task: read from the websocket and process audio, transcription, and tool calls."""

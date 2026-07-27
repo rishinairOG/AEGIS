@@ -11,12 +11,21 @@ from typing import List, Optional
 load_dotenv()
 
 class CadAgent:
-    def __init__(self, on_thought=None, on_status=None):
+    def __init__(self, on_thought=None, on_status=None, on_usage=None):
         self.client = genai.Client(http_options={"api_version": "v1beta"}, api_key=os.getenv("GEMINI_API_KEY"))
         # Using Gemini 2.5 Pro for thinking/streaming support
         self.model = "gemini-3-pro-preview"
-        self.on_thought = on_thought  # Callback for streaming thoughts 
+        self.on_thought = on_thought  # Callback for streaming thoughts
         self.on_status = on_status  # Callback for retry status info
+        self.on_usage = on_usage  # Callback (model, usage_metadata) for token tracking
+
+    def _report_usage(self, usage_metadata):
+        """Report one-shot generate usage to the shared tracker, if wired."""
+        if usage_metadata is not None and self.on_usage:
+            try:
+                self.on_usage(self.model, usage_metadata)
+            except Exception as e:
+                print(f"[CadAgent] usage report failed: {e}")
         
         self.system_instruction = """
 You are a Python-based 3D CAD Engineer using the `build123d` library.
@@ -110,7 +119,10 @@ export_stl(result_part, 'output.stl')
                         thinking_config=types.ThinkingConfig(include_thoughts=True)
                     )
                 )
+                stream_usage = None
                 async for chunk in stream:
+                    if getattr(chunk, "usage_metadata", None):
+                        stream_usage = chunk.usage_metadata
                     if chunk.candidates and chunk.candidates[0].content and chunk.candidates[0].content.parts:
                         for part in chunk.candidates[0].content.parts:
                             if not part.text:
@@ -122,7 +134,10 @@ export_stl(result_part, 'output.stl')
                             else:
                                 # Accumulate answer text
                                 raw_content += part.text
-                
+
+                # Report token usage regardless of whether extraction below succeeds.
+                self._report_usage(stream_usage)
+
                 if not raw_content:
                     print("[CadAgent DEBUG] [ERR] Empty response from model.")
                     return None
@@ -326,7 +341,10 @@ Ensure you still export to 'output.stl'.
                         thinking_config=types.ThinkingConfig(include_thoughts=True)
                     )
                 )
+                stream_usage = None
                 async for chunk in stream:
+                    if getattr(chunk, "usage_metadata", None):
+                        stream_usage = chunk.usage_metadata
                     if chunk.candidates and chunk.candidates[0].content and chunk.candidates[0].content.parts:
                         for part in chunk.candidates[0].content.parts:
                             if not part.text:
@@ -338,7 +356,10 @@ Ensure you still export to 'output.stl'.
                             else:
                                 # Accumulate answer text
                                 raw_content += part.text
-                
+
+                # Report token usage regardless of whether extraction below succeeds.
+                self._report_usage(stream_usage)
+
                 if not raw_content:
                     print("[CadAgent DEBUG] [ERR] Empty response from model.")
                     return None

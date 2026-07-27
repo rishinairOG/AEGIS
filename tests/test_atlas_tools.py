@@ -154,9 +154,48 @@ class TestConnectionErrorClassification:
             assert AudioLoop._classify_connection_error(Exception(m)) == "transient", m
 
 
+class TestAgentUsageRecording:
+    """record_agent_usage folds CAD/web agent usage into the shared tracker + emits."""
+
+    def _fake_usage(self):
+        from types import SimpleNamespace
+        return SimpleNamespace(
+            prompt_tokens_details=[SimpleNamespace(modality=SimpleNamespace(name="TEXT"), token_count=100)],
+            response_tokens_details=[SimpleNamespace(modality=SimpleNamespace(name="TEXT"), token_count=200)],
+            prompt_token_count=100,
+            response_token_count=200,
+        )
+
+    def test_records_and_emits(self):
+        from types import SimpleNamespace
+        from atlas import AudioLoop
+        from usage_tracker import UsageTracker
+
+        emitted = []
+        # Exercise the method logic without building a full (heavy) AudioLoop.
+        fake_self = SimpleNamespace(usage_tracker=UsageTracker(), on_usage=lambda s: emitted.append(s))
+        AudioLoop.record_agent_usage(fake_self, "gemini-3-pro-preview", self._fake_usage())
+
+        assert emitted, "on_usage should have been called"
+        assert emitted[-1]["total_tokens"] == 300
+        assert emitted[-1]["est_cost_usd"] > 0
+
+    def test_per_response_accumulates(self):
+        from types import SimpleNamespace
+        from atlas import AudioLoop
+        from usage_tracker import UsageTracker
+
+        emitted = []
+        fake_self = SimpleNamespace(usage_tracker=UsageTracker(), on_usage=lambda s: emitted.append(s))
+        # Two agent calls (per-response) should sum, not overwrite.
+        AudioLoop.record_agent_usage(fake_self, "gemini-3-pro-preview", self._fake_usage())
+        AudioLoop.record_agent_usage(fake_self, "gemini-3-pro-preview", self._fake_usage())
+        assert emitted[-1]["total_tokens"] == 600
+
+
 class TestFileOperations:
     """Test file operation handlers."""
-    
+
     def test_read_directory_method_exists(self):
         """Test handle_read_directory exists."""
         from atlas import AudioLoop
