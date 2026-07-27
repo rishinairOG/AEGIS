@@ -956,6 +956,11 @@ class AudioLoop:
             raise e
 
     async def play_audio(self):
+        try:
+            out_info = pya.get_default_output_device_info() if self.output_device_index is None else pya.get_device_info_by_index(self.output_device_index)
+            print(f"[ATLAS DEBUG] [AUDIO-OUT] Opening output stream on device: {out_info.get('name')} (index={out_info.get('index')})")
+        except Exception as e:
+            print(f"[ATLAS DEBUG] [AUDIO-OUT] Could not query output device: {e}")
         stream = await asyncio.to_thread(
             pya.open,
             format=FORMAT,
@@ -964,8 +969,12 @@ class AudioLoop:
             output=True,
             output_device_index=self.output_device_index,
         )
+        first_chunk = True
         while True:
             bytestream = await self.audio_in_queue.get()
+            if first_chunk:
+                print(f"[ATLAS DEBUG] [AUDIO-OUT] First audio chunk from Gemini received ({len(bytestream)} bytes) — playing to output device.")
+                first_chunk = False
             if self.on_audio_data:
                 self.on_audio_data(bytestream)
             await asyncio.to_thread(stream.write, bytestream)
